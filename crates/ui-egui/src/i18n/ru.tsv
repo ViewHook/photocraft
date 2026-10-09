@@ -2573,3 +2573,4 @@ fontWeight	Italic	Курсив
 	{seconds} s	{seconds} с
 	Enter the access token for {origin}.	Введите токен доступа для {origin}.
 	{name} isn't a PNG, JPEG or WebP image.	{name} не является изображением PNG, JPEG или WebP.
+	Use https:// for servers other than localhost.	Для серверов, кроме localhost, используйте https://.

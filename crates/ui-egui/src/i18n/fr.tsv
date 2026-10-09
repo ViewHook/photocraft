@@ -2725,3 +2725,4 @@ fontWeight	Italic	Italique
 	{seconds} s	{seconds} s
 	Enter the access token for {origin}.	Saisissez le jeton d'accès de {origin}.
 	{name} isn't a PNG, JPEG or WebP image.	{name} n'est pas une image PNG, JPEG ou WebP.
+	Use https:// for servers other than localhost.	Utilisez https:// pour les serveurs autres que localhost.

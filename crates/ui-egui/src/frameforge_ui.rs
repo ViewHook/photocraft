@@ -443,15 +443,39 @@ fn text_param<'a>(p: &'a Value, key: &str) -> Result<Option<&'a str>, String> {
 }
 
 /// `https://host[:port][/prefix]` without a trailing slash.
+/// Plain `http://` only reaches this computer (`localhost`, `127.0.0.0/8`, `[::1]`): anywhere else
+/// the access token, the brief and the images would cross the network in cleartext.
 pub(crate) fn base_url(url: &str) -> Result<String, String> {
     let url = url.trim().trim_end_matches('/');
-    let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"));
-    match rest {
-        Some(host) if !host.is_empty() && url.len() <= 2048 && !url.chars().any(|c| c.is_whitespace() || c.is_control() || c == '?' || c == '#') => {
-            Ok(url.to_string())
-        }
-        _ => Err(tl!("Enter the FrameForge server URL (http:// or https://).").into()),
+    let invalid = || tl!("Enter the FrameForge server URL (http:// or https://).").to_string();
+    let (https, rest) = match (url.strip_prefix("https://"), url.strip_prefix("http://")) {
+        (Some(rest), _) => (true, rest),
+        (None, Some(rest)) => (false, rest),
+        _ => return Err(invalid()),
+    };
+    if url.len() > 2048 || url.chars().any(|c| c.is_whitespace() || c.is_control() || c == '?' || c == '#') {
+        return Err(invalid());
     }
+    // host[:port], without user info (`http://localhost@elsewhere` is a request to elsewhere).
+    let authority = rest.split('/').next().unwrap_or_default();
+    let (host, port) = match authority.strip_prefix('[') {
+        Some(v6) => match v6.split_once(']') {
+            Some((h, "")) => (h, None),
+            Some((h, p)) => (h, Some(p.strip_prefix(':').ok_or_else(invalid)?)),
+            None => return Err(invalid()),
+        },
+        None => authority.split_once(':').map_or((authority, None), |(h, p)| (h, Some(p))),
+    };
+    if host.is_empty() || authority.contains('@') || port.is_some_and(|p| p.parse::<u16>().is_err()) {
+        return Err(invalid());
+    }
+    let loopback = host.eq_ignore_ascii_case("localhost")
+        || host.parse::<std::net::Ipv4Addr>().is_ok_and(|ip| ip.is_loopback())
+        || (authority.starts_with('[') && host.parse::<std::net::Ipv6Addr>().is_ok_and(|ip| ip.is_loopback()));
+    if !https && !loopback {
+        return Err(tl!("Use https:// for servers other than localhost.").into());
+    }
+    Ok(url.to_string())
 }
 
 /// The brief as the server takes it: (channel, video), checked against its limits.

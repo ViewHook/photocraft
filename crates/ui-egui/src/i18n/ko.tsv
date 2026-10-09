@@ -2877,3 +2877,4 @@ fontWeight	Italic	기울임
 	{seconds} s	{seconds}초
 	Enter the access token for {origin}.	{origin}의 액세스 토큰을 입력하세요.
 	{name} isn't a PNG, JPEG or WebP image.	{name}은(는) PNG, JPEG 또는 WebP 이미지가 아닙니다.
+	Use https:// for servers other than localhost.	localhost가 아닌 서버에는 https://를 사용하세요.

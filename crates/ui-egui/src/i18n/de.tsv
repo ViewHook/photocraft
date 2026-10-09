@@ -2338,3 +2338,4 @@ fontWeight	Italic	Kursiv
 	{seconds} s	{seconds} s
 	Enter the access token for {origin}.	Gib das Zugriffstoken für {origin} ein.
 	{name} isn't a PNG, JPEG or WebP image.	{name} ist kein PNG-, JPEG- oder WebP-Bild.
+	Use https:// for servers other than localhost.	Verwende https:// für Server außer localhost.

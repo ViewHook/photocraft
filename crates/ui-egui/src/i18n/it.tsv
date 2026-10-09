@@ -2370,3 +2370,4 @@ fontWeight	Italic	Corsivo
 	{seconds} s	{seconds} s
 	Enter the access token for {origin}.	Inserisci il token di accesso per {origin}.
 	{name} isn't a PNG, JPEG or WebP image.	{name} non è un'immagine PNG, JPEG o WebP.
+	Use https:// for servers other than localhost.	Usa https:// per i server diversi da localhost.

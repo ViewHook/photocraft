@@ -275,9 +275,11 @@ impl HttpResponse {
     }
 }
 
+/// `Debug` shows header names only, like [`HttpRequest`]'s: values can carry session cookies.
 impl std::fmt::Debug for HttpResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HttpResponse").field("status", &self.status).field("headers", &self.headers).field("body", &self.body.len()).finish()
+        let names: Vec<&str> = self.headers.iter().map(|(name, _)| name.as_str()).collect();
+        f.debug_struct("HttpResponse").field("status", &self.status).field("headers", &names).field("body", &self.body.len()).finish()
     }
 }
 

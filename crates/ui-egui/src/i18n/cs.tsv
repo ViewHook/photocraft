@@ -2298,3 +2298,4 @@ fontWeight	Italic	Kurzíva
 	{seconds} s	{seconds} s
 	Enter the access token for {origin}.	Zadejte přístupový token pro {origin}.
 	{name} isn't a PNG, JPEG or WebP image.	{name} není obrázek PNG, JPEG ani WebP.
+	Use https:// for servers other than localhost.	Pro jiné servery než localhost použijte https://.

@@ -76,8 +76,8 @@ fn services(fake: &Fake) -> Services {
 fn app(fake: &Fake) -> PhotocraftApp {
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), services(fake));
     let f = &mut app.ui.frameforge;
-    f.server_url = "http://frameforge.test/".into();
-    f.token = Token::new("test-token", "http://frameforge.test/");
+    f.server_url = "https://frameforge.test/".into();
+    f.token = Token::new("test-token", "https://frameforge.test/");
     f.channel_name = "Test Channel".into();
     f.video_title = "I tried the thing".into();
     f.video_summary = "A short brief.".into();
@@ -189,7 +189,7 @@ fn frameforge_connect_succeeds_then_shows_the_servers_401() {
     assert_eq!(server.api, 1);
     assert!(server.fonts.iter().all(|f| f.file != "../etc/passwd"), "unsafe font names are dropped");
     let req = fake.requests().pop().unwrap();
-    assert_eq!((req.method.as_str(), req.url.as_str()), ("GET", "http://frameforge.test/api/native/v1/info"));
+    assert_eq!((req.method.as_str(), req.url.as_str()), ("GET", "https://frameforge.test/api/native/v1/info"));
     assert!(req.headers.contains(&("Authorization".into(), "Bearer test-token".into())));
     assert!(!format!("{req:?}").contains("test-token"), "request Debug hides header values");
 
@@ -203,7 +203,7 @@ fn frameforge_connect_succeeds_then_shows_the_servers_401() {
 fn frameforge_connect_rejects_bad_urls_and_parameters() {
     let fake = Fake::default();
     let mut app = app(&fake);
-    for url in ["ftp://frameforge.test", "frameforge.test", "https://", "https://a b", ""] {
+    for url in ["ftp://frameforge.test", "frameforge.test", "https://", "https://a b", "", "http://remote.example", "https://user@frameforge.test"] {
         assert!(run(&mut app, ff::CONNECT, json!({"url": url})).is_err(), "{url}");
     }
     assert!(run(&mut app, ff::CONNECT, json!({"url": 42})).is_err());
@@ -221,7 +221,7 @@ fn frameforge_develop_sends_the_contract_body() {
     let r = run(&mut app, ff::DEVELOP, json!({"video": {"title": "New title"}, "images": ["document", data_url(&png(64, 48), "image/png")]})).unwrap();
     assert_eq!(r["images"], 2);
     let req = fake.requests().pop().unwrap();
-    assert_eq!((req.method.as_str(), req.url.as_str()), ("POST", "http://frameforge.test/api/native/v1/concepts"));
+    assert_eq!((req.method.as_str(), req.url.as_str()), ("POST", "https://frameforge.test/api/native/v1/concepts"));
     assert!(req.headers.contains(&("Content-Type".into(), "application/json".into())));
     let body: Value = serde_json::from_slice(&req.body).unwrap();
     let keys: Vec<&String> = body.as_object().unwrap().keys().collect();
@@ -510,7 +510,7 @@ fn frameforge_token_is_never_serialized() {
     // Only the server and the channel persist.
     assert_eq!(
         ui["frameforge"],
-        json!({"open": false, "server_url": "http://frameforge.test/", "channel_name": "Test Channel", "channel_url": "", "channel_notes": ""})
+        json!({"open": false, "server_url": "https://frameforge.test/", "channel_name": "Test Channel", "channel_url": "", "channel_notes": ""})
     );
     let back: crate::UiState = serde_json::from_value(ui).unwrap();
     assert!(!back.frameforge.token.is_set() && back.frameforge.images.is_empty() && back.frameforge.concepts.is_none());
@@ -539,7 +539,7 @@ fn frameforge_menu_id_is_wired() {
 #[test]
 fn frameforge_without_a_network_service_says_so() {
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Services::default());
-    app.ui.frameforge.server_url = "http://frameforge.test".into();
+    app.ui.frameforge.server_url = "https://frameforge.test".into();
     for id in [ff::CONNECT, ff::DEVELOP] {
         assert_eq!(run(&mut app, id, json!({})).unwrap_err(), "FrameForge needs a network-enabled build.");
     }
@@ -628,32 +628,76 @@ fn frameforge_token_is_bound_to_its_server() {
     run(&mut app, ff::CONNECT, json!({})).unwrap();
     assert_eq!(bearer(&fake.requests()[0]).as_deref(), Some("Bearer test-token"));
     // Another server (the control channel, or an edited URL): nothing is sent, the token is gone.
-    let err = run(&mut app, ff::CONNECT, json!({"url": "http://other.test:8080/"})).unwrap_err();
-    assert_eq!(err, "Enter the access token for http://other.test:8080.");
+    let err = run(&mut app, ff::CONNECT, json!({"url": "https://other.test:8080/"})).unwrap_err();
+    assert_eq!(err, "Enter the access token for https://other.test:8080.");
     assert_eq!(message(&app), (err, true));
     assert_eq!(fake.requests().len(), 1, "nothing went to the other server");
     assert!(!app.ui.frameforge.token.is_set());
     // A token given with the call belongs to that call's server.
-    run(&mut app, ff::CONNECT, json!({"url": "http://other.test:8080", "token": "test-token-b"})).unwrap();
+    run(&mut app, ff::CONNECT, json!({"url": "https://other.test:8080", "token": "test-token-b"})).unwrap();
     let r = fake.requests().pop().unwrap();
-    assert_eq!((r.url.as_str(), bearer(&r).as_deref()), ("http://other.test:8080/api/native/v1/info", Some("Bearer test-token-b")));
+    assert_eq!((r.url.as_str(), bearer(&r).as_deref()), ("https://other.test:8080/api/native/v1/info", Some("Bearer test-token-b")));
     // Back to the first server: B's token stays home.
-    app.ui.frameforge.server_url = "http://frameforge.test".into();
+    app.ui.frameforge.server_url = "https://frameforge.test".into();
     let err = run(&mut app, ff::DEVELOP, json!({})).unwrap_err();
-    assert_eq!(err, "Enter the access token for http://frameforge.test.");
+    assert_eq!(err, "Enter the access token for https://frameforge.test.");
     assert_eq!(fake.requests().len(), 2);
     // Entered again for it: sent again.
     ff::set_access_token(&mut app, "test-token".into());
     run(&mut app, ff::CONNECT, json!({})).unwrap();
     assert_eq!(bearer(&fake.requests()[2]).as_deref(), Some("Bearer test-token"));
-    assert!(fake.requests().iter().all(|r| r.url.starts_with("http://other.test") == (bearer(r).as_deref() == Some("Bearer test-token-b"))));
+    assert!(fake.requests().iter().all(|r| r.url.starts_with("https://other.test") == (bearer(r).as_deref() == Some("Bearer test-token-b"))));
     // A token entered before there was a URL belongs to no server: commands never bind it.
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), services(&fake));
     ff::set_access_token(&mut app, "test-token".into());
     assert_eq!(app.ui.frameforge.token.origin(), None);
-    assert!(run(&mut app, ff::CONNECT, json!({"url": "http://frameforge.test"})).is_err());
+    assert!(run(&mut app, ff::CONNECT, json!({"url": "https://frameforge.test"})).is_err());
     assert_eq!(fake.requests().len(), 3);
     assert_eq!(ff::origin("https://Host.test:8443/prefix/api"), "https://Host.test:8443");
+}
+
+/// Plain http:// only reaches this computer: anything else must be https://, so the token, the
+/// brief and the images never cross the network in cleartext. Loopback http:// keeps the token.
+#[test]
+fn frameforge_plain_http_is_only_for_this_computer() {
+    for url in ["http://remote.example", "http://192.168.1.20:4391", "http://128.0.0.1", "http://localhost.example.com", "http://[::2]"] {
+        assert_eq!(ff::base_url(url), Err("Use https:// for servers other than localhost.".to_string()), "{url}");
+    }
+    for url in ["http://localhost@remote.example", "http://127.0.0.1:99999", "http://[::1]x", "http://:4391"] {
+        assert_eq!(ff::base_url(url), Err("Enter the FrameForge server URL (http:// or https://).".to_string()), "{url}");
+    }
+    for url in ["http://127.0.0.1:4391", "http://localhost:4173/", "http://LOCALHOST", "http://127.1.2.3", "http://[::1]:8080", "https://remote.example"] {
+        assert_eq!(ff::base_url(url), Ok(url.trim_end_matches('/').to_string()), "{url}");
+    }
+    // Refused before anything is sent.
+    let fake = Fake::default();
+    let mut app = app(&fake);
+    let err = run(&mut app, ff::CONNECT, json!({"url": "http://remote.example", "token": "test-token"})).unwrap_err();
+    assert_eq!(err, "Use https:// for servers other than localhost.");
+    assert!(fake.requests().is_empty());
+    // The live validation server: loopback http:// with the bearer.
+    fake.route("/api/native/v1/info", json_answer(200, info()));
+    run(&mut app, ff::CONNECT, json!({"url": "http://127.0.0.1:4391", "token": "test-token"})).unwrap();
+    let r = fake.requests().pop().unwrap();
+    assert_eq!(r.url, "http://127.0.0.1:4391/api/native/v1/info");
+    assert!(r.headers.contains(&("Authorization".into(), "Bearer test-token".into())));
+    assert_eq!(message(&app), ("Connected (api 1)".into(), false));
+}
+
+/// Neither request nor response `Debug` shows header values (bearer tokens, session cookies).
+#[test]
+fn frameforge_http_debug_shows_header_names_only() {
+    let req = HttpRequest {
+        method: "GET".into(),
+        url: "https://frameforge.test".into(),
+        headers: vec![("Authorization".into(), "Bearer test-token".into())],
+        ..Default::default()
+    };
+    let r = HttpResponse { status: 200, headers: vec![("Set-Cookie".into(), "session=test-token".into())], body: b"test-token".to_vec() };
+    for text in [format!("{req:?}"), format!("{r:?}")] {
+        assert!(!text.contains("test-token"), "{text}");
+    }
+    assert!(format!("{r:?}").contains("Set-Cookie") && format!("{req:?}").contains("Authorization"));
 }
 
 /// Typed before the URL (or from the environment), a token is bound by the user's own click.
@@ -663,7 +707,7 @@ fn frameforge_connect_button_binds_a_token_entered_before_the_url() {
     fake.route("/api/native/v1/info", json_answer(200, info()));
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), services(&fake));
     ff::set_access_token(&mut app, "test-token".into());
-    app.ui.frameforge.server_url = "http://frameforge.test".into();
+    app.ui.frameforge.server_url = "https://frameforge.test".into();
     app.ui.frameforge.open = true;
     let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1200.0, 1000.0)).build_ui_state(
         |ui, app: &mut PhotocraftApp| {
@@ -680,7 +724,7 @@ fn frameforge_connect_button_binds_a_token_entered_before_the_url() {
     h.get_by_label("Connect").click();
     h.run_steps(2);
     assert_eq!(h.state().ui.frameforge.message, Some(("Connected (api 1)".into(), false)));
-    assert_eq!(h.state().ui.frameforge.token.origin(), Some("http://frameforge.test"));
+    assert_eq!(h.state().ui.frameforge.token.origin(), Some("https://frameforge.test"));
     let r = fake.requests().pop().unwrap();
     assert!(r.headers.contains(&("Authorization".into(), "Bearer test-token".into())));
 }
@@ -817,7 +861,7 @@ fn frameforge_panel_evidence() {
         egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 1000.0)).with_pixels_per_point(1.0).with_max_steps(64).wgpu().build_eframe(move |cc| {
             PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
             let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), services);
-            app.ui.frameforge.server_url = "http://frameforge.test".into();
+            app.ui.frameforge.server_url = "https://frameforge.test".into();
             app
         });
     let ctx = h.ctx.clone();

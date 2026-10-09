@@ -2712,3 +2712,4 @@ fontWeight	Italic	Miring
 	{seconds} s	{seconds} dtk
 	Enter the access token for {origin}.	Masukkan token akses untuk {origin}.
 	{name} isn't a PNG, JPEG or WebP image.	{name} bukan gambar PNG, JPEG, atau WebP.
+	Use https:// for servers other than localhost.	Gunakan https:// untuk server selain localhost.

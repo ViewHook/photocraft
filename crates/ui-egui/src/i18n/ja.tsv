@@ -2281,3 +2281,4 @@ fontWeight	Italic	斜体
 	{seconds} s	{seconds} 秒
 	Enter the access token for {origin}.	{origin} のアクセストークンを入力してください。
 	{name} isn't a PNG, JPEG or WebP image.	{name} は PNG、JPEG、WebP 画像ではありません。
+	Use https:// for servers other than localhost.	localhost 以外のサーバーには https:// を使ってください。

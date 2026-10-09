@@ -2275,3 +2275,4 @@ fontWeight	Italic	斜體
 	{seconds} s	{seconds} 秒
 	Enter the access token for {origin}.	請輸入 {origin} 的存取權杖。
 	{name} isn't a PNG, JPEG or WebP image.	{name} 不是 PNG、JPEG 或 WebP 影像。
+	Use https:// for servers other than localhost.	localhost 以外的伺服器請使用 https://。

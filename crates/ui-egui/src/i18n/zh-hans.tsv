@@ -2306,3 +2306,4 @@ fontWeight	Italic	斜体
 	{seconds} s	{seconds} 秒
 	Enter the access token for {origin}.	请输入 {origin} 的访问令牌。
 	{name} isn't a PNG, JPEG or WebP image.	{name} 不是 PNG、JPEG 或 WebP 图像。
+	Use https:// for servers other than localhost.	localhost 以外的服务器请使用 https://。

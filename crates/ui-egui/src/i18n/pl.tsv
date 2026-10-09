@@ -3326,3 +3326,4 @@ cameraRaw	Roughness	Chropowatość
 	{seconds} s	{seconds} s
 	Enter the access token for {origin}.	Wpisz token dostępu dla {origin}.
 	{name} isn't a PNG, JPEG or WebP image.	{name} nie jest obrazem PNG, JPEG ani WebP.
+	Use https:// for servers other than localhost.	Dla serwerów innych niż localhost użyj https://.
