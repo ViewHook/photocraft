@@ -23,6 +23,7 @@ name = "photocraft-cli"
 path = "src/main.rs"
 
 [dependencies]
+photocraft-frameforge.workspace = true
 photocraft-automation = { path = "../../crates/automation" }
 photocraft-engine = { workspace = true }
 photocraft-io = { workspace = true }

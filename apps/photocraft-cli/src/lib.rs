@@ -14,8 +14,9 @@ pub const USAGE: &str = "\
 photocraft-cli: headless Photocraft
 
 USAGE:
-  photocraft-cli convert <in> <out> [--format <ext>] [--quality <1-100>] [--tiff-layers]
+  photocraft-cli convert <in> <out> [--format <ext>] [--quality <1-100>] [--tiff-layers] [--fonts-dir DIR]
       Convert between formats (.pcraft, .psd, .png, .jpg, .tif, .webp, .exr, …).
+      FrameForge input creates editable layers; --fonts-dir supplies external TTF fonts.
       TIFF output is flat unless --tiff-layers keeps the layers (Photoshop layer data).
       --quality sets the JPEG or WebP quality; a WebP written with a quality is lossy, without one lossless.
   photocraft-cli info <file> [--compact]
@@ -61,7 +62,7 @@ struct Subcommand {
 }
 
 const SUBCOMMANDS: &[Subcommand] = &[
-    Subcommand { name: "convert", values: &["--format", "--quality"], bare: &["--tiff-layers"], run: convert },
+    Subcommand { name: "convert", values: &["--format", "--quality", "--fonts-dir"], bare: &["--tiff-layers"], run: convert },
     Subcommand { name: "info", values: &[], bare: &["--compact"], run: |a, out, _| info(a, out) },
     Subcommand { name: "run", values: &["--new", "--cmd", "--params", "--out", "--format", "--quality"], bare: &["--tiff-layers"], run: run_cmds },
     Subcommand { name: "batch", values: &["--actions", "--in", "--out", "--format", "--quality"], bare: &["--in-place", "--tiff-layers"], run: batch },
@@ -219,6 +220,18 @@ fn convert(a: &Args, _out: &mut dyn Write, err: &mut dyn Write) -> R {
         return Err("convert needs <in> <out>".into());
     };
     let opts = export_opts(a)?;
+    if Path::new(input).extension().is_some_and(|e| e.eq_ignore_ascii_case("frameforge")) {
+        let bytes = photocraft_format::read_file(Path::new(input)).map_err(|e| e.to_string())?;
+        let archive = photocraft_frameforge::read_archive(&bytes)?;
+        let resolver = |family: &str, weight: u16| a.get("--fonts-dir").and_then(|d| photocraft_frameforge::font_from_dir(Path::new(d), family, weight));
+        let mut session = photocraft_engine::Session::new();
+        let report = photocraft_frameforge::import_into(&mut session, &archive, &photocraft_frameforge::ImportOptions { font_resolver: Some(&resolver) })?;
+        warn_all(err, &report.warnings);
+        let doc = &session.active().ok_or("FrameForge import created no document")?.doc;
+        let warnings = files::save(doc, Path::new(output), a.get("--format"), &opts, None).map_err(|e| e.to_string())?;
+        warn_all(err, &warnings);
+        return Ok(());
+    }
     let o = files::open(Path::new(input)).map_err(|e| e.to_string())?;
     warn_all(err, &o.warnings);
     warn_all(err, &missing_font_warnings(photocraft_engine::type_extra_cmds::missing_fonts(&o.document)));

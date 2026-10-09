@@ -562,3 +562,17 @@ fn a_non_unicode_argument_is_a_usage_error_not_a_panic() {
         assert!(!err.contains("panicked"), "{err}");
     }
 }
+
+#[test]
+fn frameforge_help_and_malformed_archive() {
+    let (help, _) = ok(bin().args(["convert", "--help"]));
+    assert!(help.contains("--fonts-dir"));
+    let d = tmp("frameforge-malformed");
+    let input = d.join("bad.frameforge");
+    let output = d.join("out.png");
+    std::fs::write(&input, b"invalid ZIP").unwrap();
+    let r = bin().arg("convert").arg(&input).arg(&output).arg("--fonts-dir").arg(&d).output().unwrap();
+    assert_eq!(r.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&r.stderr).contains("ZIP"));
+    assert!(!output.exists());
+}
