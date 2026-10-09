@@ -63,6 +63,11 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("help.reportIssue", "Report an Issue…", &["Help"], None),
     ("help.systemInfo", "System Info…", &["Help"], None),
     ("help.about", "About PhotoCraft", &["Help"], None),
+    // Window › FrameForge actions (`frameforge_ui`), for the control channel and the command search.
+    ("frameforge.connect", "Connect to FrameForge", &[], None),
+    ("frameforge.develop", "Develop FrameForge Concepts", &[], None),
+    ("frameforge.create", "Create from FrameForge Concept", &[], None),
+    ("frameforge.cancel", "Cancel FrameForge Request", &[], None),
 ];
 
 /// Photoshop's Window › <panel> ids for the panels the shell already has, as `window.toggle.*`.
@@ -146,6 +151,10 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
     }
     // Window > Timeline panel.
     if let Some(r) = crate::timeline_ui::menu(app, id, &params) {
+        return r;
+    }
+    // Window > FrameForge panel and its `frameforge.*` commands.
+    if let Some(r) = crate::frameforge_ui::menu(app, ctx, id, &params) {
         return r;
     }
     // Filter › Plug-ins (installed WebAssembly plug-ins, Install Plug-in…).
@@ -501,6 +510,9 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
     if crate::preset_panels::handles(id) || crate::type_panels_ui::handles(id) || crate::timeline_ui::handles(id) {
         return true;
     }
+    if let Some(e) = crate::frameforge_ui::is_enabled(app, id) {
+        return e;
+    }
     if let Some(e) = crate::view_cmds::is_enabled(app, id) {
         return e;
     }
@@ -575,7 +587,7 @@ fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
     if let Some(c) = crate::preset_panels::checked(app, id) {
         return Some(c);
     }
-    if let Some(c) = crate::timeline_ui::checked(app, id) {
+    if let Some(c) = crate::timeline_ui::checked(app, id).or_else(|| crate::frameforge_ui::checked(app, id)) {
         return Some(c);
     }
     if let Some(c) = crate::type_panels_ui::checked(app, id) {
@@ -682,6 +694,7 @@ pub fn is_live(id: &str) -> bool {
         || crate::preset_panels::handles(id)
         || crate::type_panels_ui::handles(id)
         || crate::timeline_ui::handles(id)
+        || crate::frameforge_ui::handles(id)
 }
 
 /// Commands outside the catalogue that belong right after a catalogue item: `(id, after)`.

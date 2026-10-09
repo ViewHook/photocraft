@@ -2643,3 +2643,72 @@ fontWeight	Italic	Miring
 # Pattern Stamp tool
 	Pattern Stamp Tool	Alat Stempel Pola
 	Impressionist	Impresionis
+
+# Window › FrameForge (frameforge_ui.rs, frameforge_images.rs)
+	A FrameForge request is already running.	Permintaan FrameForge sudah berjalan.
+	Access token	Token akses
+	Add current document	Tambahkan dokumen saat ini
+	Add image…	Tambahkan gambar…
+	Attach at most 4 images.	Lampirkan paling banyak 4 gambar.
+	Brand notes	Catatan merek
+	Brief	Brief
+	Brief fields must be text.	Kolom brief harus berupa teks.
+	Cancel FrameForge Request	Batalkan permintaan FrameForge
+	Cancelled.	Dibatalkan.
+	Channel URL	URL kanal
+	Channel name	Nama kanal
+	Choose a concept to create.	Pilih konsep yang akan dibuat.
+	Concepts	Konsep
+	Connect	Hubungkan
+	Connect to FrameForge	Hubungkan ke FrameForge
+	Connected (api {api})	Terhubung (api {api})
+	Connecting…	Menghubungkan…
+	Couldn't reach the FrameForge server: {error}	Tidak dapat menjangkau server FrameForge: {error}
+	Create from FrameForge Concept	Buat dari konsep FrameForge
+	Created {name}	{name} dibuat
+	Creating {name}…	Membuat {name}…
+	Develop FrameForge Concepts	Kembangkan konsep FrameForge
+	Develop concepts	Kembangkan konsep
+	Develop concepts first.	Kembangkan konsep terlebih dahulu.
+	Developing concepts…	Mengembangkan konsep…
+	Enter a channel name.	Masukkan nama kanal.
+	Enter a video title.	Masukkan judul video.
+	Enter the FrameForge server URL (http:// or https://).	Masukkan URL server FrameForge (http:// atau https://).
+	Font {family} {weight}: {error}	Font {family} {weight}: {error}
+	FrameForge	FrameForge
+	FrameForge needs a network-enabled build.	FrameForge memerlukan build dengan akses jaringan.
+	Images	Gambar
+	Images must be data URLs, base64 file bytes or "document".	Gambar harus berupa data URL, byte file base64, atau "document".
+	Open a document first.	Buka dokumen terlebih dahulu.
+	Remove image	Hapus gambar
+	Server	Server
+	Server URL	URL server
+	Server fonts are unavailable: {error}	Font server tidak tersedia: {error}
+	The FrameForge server answered HTTP {status}.	Server FrameForge menjawab HTTP {status}.
+	The FrameForge server sent an invalid concept.	Server FrameForge mengirim konsep yang tidak valid.
+	The FrameForge server sent {count} concepts; PhotoCraft expects 2 or 3.	Server FrameForge mengirim {count} konsep; PhotoCraft mengharapkan 2 atau 3.
+	The FrameForge server's answer is larger than {max} MiB.	Jawaban server FrameForge lebih besar dari {max} MiB.
+	The FrameForge server's answer isn't valid JSON.	Jawaban server FrameForge bukan JSON yang valid.
+	The brief is larger than the server accepts (10 MiB).	Brief lebih besar dari yang diterima server (10 MiB).
+	The images are larger than the server accepts (64 MiB in all).	Gambar lebih besar dari yang diterima server (total 64 MiB).
+	The server didn't answer.	Server tidak menjawab.
+	The server's answer isn't a FrameForge project: {error}	Jawaban server bukan proyek FrameForge: {error}
+	The token stays in memory and is never saved.	Token hanya disimpan di memori dan tidak pernah disimpan ke disk.
+	There is no concept {n}.	Konsep {n} tidak ada.
+	This FrameForge server speaks API {api}; PhotoCraft speaks API 1.	Server FrameForge ini memakai API {api}; PhotoCraft memakai API 1.
+	This build can't export documents.	Build ini tidak dapat mengekspor dokumen.
+	Try again in {seconds} s.	Coba lagi dalam {seconds} dtk.
+	Video summary	Ringkasan video
+	Video title	Judul video
+	Warnings	Peringatan
+	generated	dihasilkan
+	upload {n}	unggahan {n}
+	{count} concepts are ready.	{count} konsep siap.
+	{field} is too long: at most {max} characters.	{field} terlalu panjang: paling banyak {max} karakter.
+	{name} can't be used: {error}	{name} tidak dapat dipakai: {error}
+	{name} doesn't fit the server's 2 MiB limit, even at 1600 pixels.	{name} tidak muat dalam batas 2 MiB server, bahkan pada 1600 piksel.
+	{name} is larger than {max} MiB.	{name} lebih besar dari {max} MiB.
+	{name} is too large to send (at most 12 MiB and 8192 pixels).	{name} terlalu besar untuk dikirim (paling banyak 12 MiB dan 8192 piksel).
+	{seconds} s	{seconds} dtk
+	Enter the access token for {origin}.	Masukkan token akses untuk {origin}.
+	{name} isn't a PNG, JPEG or WebP image.	{name} bukan gambar PNG, JPEG, atau WebP.

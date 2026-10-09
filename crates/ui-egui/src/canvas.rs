@@ -1213,11 +1213,14 @@ fn documents(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // Files opening in the background (#210) have tabs before they have documents.
     let opening = !app.jobs.opens.is_empty();
     if !opening && app.ui.chrome.shows_home(n, app.session.prefs().general.auto_show_home_screen) {
+        // No canvas: floating panels opened now are placed over the Home Screen's area.
+        app.last_canvas_rect = ui.available_rect_before_wrap();
         start_screen(app, ui);
         return;
     }
     if n == 0 && !opening {
         // Auto show the Home Screen is off: an empty workspace, like Photoshop.
+        app.last_canvas_rect = ui.available_rect_before_wrap();
         paint_dots(ui, ui.available_rect_before_wrap());
         return;
     }

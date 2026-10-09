@@ -3,6 +3,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 mod archive;
 pub mod convert;
+pub mod fonts;
 pub use archive::read_archive;
 use convert::{number, string};
 use photocraft_engine::Session;
@@ -15,6 +16,37 @@ pub struct Archive {
     pub assets: BTreeMap<String, Vec<u8>>,
 }
 pub type FontResolver<'a> = dyn Fn(&str, u16) -> Option<Vec<u8>> + 'a;
+/// FrameForge layout bookkeeping on layers. None of it changes how FrameForge renders the layer,
+/// so it imports without a warning; unsupported keys that do change rendering still warn. Sources
+/// in FrameForge (youtube-thumbnail-app):
+/// - `src/generated-assets.js` `freshGeneratedLayer`, which builds every image layer the native
+///   materialize endpoint returns: `sourceWidth`/`sourceHeight` (fallbacks for the decoded image
+///   size), `hasAlpha`, `backgroundRemoved`, `generationModel`, `busyZones` (layout audits), and
+///   `maskBounds` (placement input only together with `maskAppliedToSource`, which still warns);
+/// - `src/learning/channel-memory.js` `applyGuidanceToLayers`: `evidence` (channel-rule provenance);
+/// - `src/archetypes/compiler.js` `imageLayer`: `archetypeRole`, `objectBounds` (as `maskBounds`),
+///   `primaryFocal`, `gestureDirection`, `gazeDirection`, `highlightRegion`, `modificationPolicy`,
+///   `allowRectangularSourcePatch`;
+/// - `src/composition/compose-thumbnail.js`: `groupId`.
+pub const METADATA_KEYS: [&str; 17] = [
+    "sourceWidth",
+    "sourceHeight",
+    "hasAlpha",
+    "backgroundRemoved",
+    "maskBounds",
+    "busyZones",
+    "generationModel",
+    "evidence",
+    "archetypeRole",
+    "objectBounds",
+    "primaryFocal",
+    "gestureDirection",
+    "gazeDirection",
+    "highlightRegion",
+    "modificationPolicy",
+    "allowRectangularSourcePatch",
+    "groupId",
+];
 #[derive(Default)]
 pub struct ImportOptions<'a> {
     /// Supply font bytes before type creation. None uses installed/bundled faces.
@@ -109,7 +141,10 @@ fn import(s: &mut Session, a: &Archive, o: &ImportOptions<'_>) -> Result<ImportR
         ];
         if let Some(keys) = l.as_object() {
             for key in keys.keys() {
-                if !common.contains(&key.as_str()) && !(if kind == "text" { text_keys.as_slice() } else { image_keys.as_slice() }).contains(&key.as_str()) {
+                if !common.contains(&key.as_str())
+                    && !METADATA_KEYS.contains(&key.as_str())
+                    && !(if kind == "text" { text_keys.as_slice() } else { image_keys.as_slice() }).contains(&key.as_str())
+                {
                     report.warnings.push(format!("Layer '{name}': unsupported feature '{key}' approximated or omitted"));
                 }
             }
@@ -279,5 +314,7 @@ pub fn font_from_dir(dir: &std::path::Path, family: &str, weight: u16) -> Option
     }
     std::fs::read(dir.join(format!("{slug}-{weight}.ttf"))).ok()
 }
+#[doc(hidden)]
+pub mod testing;
 #[cfg(test)]
 mod tests;

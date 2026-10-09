@@ -13,6 +13,8 @@ photocraft-text.workspace = true
 serde_json.workspace = true
 flate2.workspace = true
 crc32fast = "1"
+# WOFF2 → sfnt for the fonts the FrameForge server serves (pure Rust, MIT).
+wuff = { version = "0.2", default-features = false, features = ["brotli"] }
 
 [dev-dependencies]
 photocraft-io.workspace = true

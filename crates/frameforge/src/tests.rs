@@ -1,55 +1,5 @@
 use super::*;
-use std::io::Write;
-fn zip(entries: &[(&str, Vec<u8>, bool)]) -> Vec<u8> {
-    let mut out = Vec::new();
-    let mut directory = Vec::new();
-    for (name, data, deflate) in entries {
-        let local = out.len() as u32;
-        let compressed = if *deflate {
-            let mut e = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::fast());
-            e.write_all(data).unwrap();
-            e.finish().unwrap()
-        } else {
-            data.clone()
-        };
-        let method = if *deflate { 8u16 } else { 0 };
-        let crc = crc32fast::hash(data);
-        out.extend_from_slice(b"PK\x03\x04");
-        for n in [20u16, 0, method, 0, 0] {
-            out.extend(n.to_le_bytes());
-        }
-        for n in [crc, compressed.len() as u32, data.len() as u32] {
-            out.extend(n.to_le_bytes());
-        }
-        out.extend((name.len() as u16).to_le_bytes());
-        out.extend(0u16.to_le_bytes());
-        out.extend(name.as_bytes());
-        out.extend(compressed);
-        directory.extend_from_slice(b"PK\x01\x02");
-        for n in [20u16, 20, 0, method, 0, 0] {
-            directory.extend(n.to_le_bytes());
-        }
-        for n in [crc, (out.len() - local as usize - 30 - name.len()) as u32, data.len() as u32] {
-            directory.extend(n.to_le_bytes());
-        }
-        for n in [name.len() as u16, 0, 0, 0, 0] {
-            directory.extend(n.to_le_bytes());
-        }
-        directory.extend(0u32.to_le_bytes());
-        directory.extend(local.to_le_bytes());
-        directory.extend(name.as_bytes());
-    }
-    let at = out.len();
-    out.extend(&directory);
-    out.extend_from_slice(b"PK\x05\x06");
-    for n in [0u16, 0, entries.len() as u16, entries.len() as u16] {
-        out.extend(n.to_le_bytes());
-    }
-    out.extend((directory.len() as u32).to_le_bytes());
-    out.extend((at as u32).to_le_bytes());
-    out.extend(0u16.to_le_bytes());
-    out
-}
+use crate::testing::zip;
 fn manifest(layers: Value) -> Vec<u8> {
     serde_json::to_vec(&json!({"format":"frameforge-project","formatVersion":1,"project":{"name":"Test","layers":layers},"assets":[]})).unwrap()
 }
@@ -381,4 +331,103 @@ fn import_preserves_but_ignores_type_tool_defaults() {
 fn css_font_weight_mapping() {
     assert_eq!(convert::text_style(&json!({"font":"Montserrat","fontWeight":"bold"})).unwrap()["weight"], 900.);
     assert_eq!(convert::text_style(&json!({"font":"Montserrat","fontWeight":"400"})).unwrap()["weight"], 400.);
+}
+
+/// A FrameForge layer from the native materialize endpoint carries layout bookkeeping
+/// (`src/generated-assets.js`, `src/learning/channel-memory.js`): none of it is a warning.
+#[test]
+fn layout_metadata_is_not_a_warning() {
+    let image = image::RgbaImage::from_pixel(8, 4, image::Rgba([200, 30, 30, 255]));
+    let mut png = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut png, image::ImageFormat::Png).unwrap();
+    let mut still = json!({"id":"still","name":"Original video still","type":"image","assetRef":"asset-0001","x":0,"y":0,"w":100,"h":100,"fit":"contain","preserveAspectRatio":true,"role":"background","semanticRole":"background","assetKind":"scene","generated":false,"locked":true});
+    let values = [
+        json!(1280),
+        json!(720),
+        json!(false),
+        json!(false),
+        json!({"x":0,"y":0,"w":1,"h":1}),
+        json!([{"x":0.1,"y":0.1,"w":0.2,"h":0.2}]),
+        json!("gpt-image"),
+        json!({"channelMemory":[{"property":"color","value":"#ffffff","source":"instruction"}]}),
+        json!("subject-primary"),
+        json!({"x":0,"y":0,"w":1,"h":1}),
+        json!(true),
+        json!("left"),
+        json!("right"),
+        json!({"x":0.5,"y":0.5,"w":0.1,"h":0.1}),
+        json!("exact"),
+        json!(false),
+        json!("group-1"),
+    ];
+    for (key, value) in METADATA_KEYS.iter().zip(values) {
+        still[*key] = value;
+    }
+    let mut headline = text("headline");
+    headline["evidence"] = json!({"channelMemory":[]});
+    headline["groupId"] = json!(null);
+    let m = json!({"format":"frameforge-project","formatVersion":1,"project":{"layers":[headline, still]},"assets":[{"ref":"asset-0001","path":"assets/asset-0001","size":png.get_ref().len()}]});
+    let a = read_archive(&zip(&[("manifest.json", serde_json::to_vec(&m).unwrap(), true), ("assets/asset-0001", png.into_inner(), false)])).unwrap();
+    let r = import_into(&mut Session::new(), &a, &ImportOptions::default()).unwrap();
+    assert!(r.warnings.is_empty(), "{:?}", r.warnings);
+    assert_eq!(r.layers.len(), 2);
+}
+
+/// Bookkeeping is silenced, rendering is not: an unsupported key that changes how FrameForge
+/// draws the layer still warns, next to the silent metadata.
+#[test]
+fn unsupported_rendering_keys_still_warn_beside_metadata() {
+    let mut l = text("headline");
+    l["sourceWidth"] = json!(1280);
+    l["busyZones"] = json!([]);
+    l["maskAppliedToSource"] = json!(true);
+    l["outerStroke"] = json!("#000000");
+    let r = import_into(&mut Session::new(), &archive(json!([l])), &ImportOptions::default()).unwrap();
+    for key in ["maskAppliedToSource", "outerStroke"] {
+        assert!(r.warnings.iter().any(|w| w.contains(&format!("'{key}'"))), "{key}: {:?}", r.warnings);
+    }
+    assert!(!r.warnings.iter().any(|w| w.contains("sourceWidth") || w.contains("busyZones")), "{:?}", r.warnings);
+}
+
+/// A real OFL font from the repository's UI assets survives WOFF2 → sfnt table for table, and
+/// PhotoCraft's type engine registers the result under its family name.
+#[test]
+fn woff2_round_trip() {
+    let ttf = include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf");
+    let woff2 = crate::testing::woff2_stored(ttf).unwrap();
+    assert_eq!(&woff2[..4], b"wOF2");
+    let sfnt = fonts::woff2_to_sfnt(&woff2).unwrap();
+    let tables = |f: &[u8]| -> BTreeMap<[u8; 4], Vec<u8>> {
+        let n = u16::from_be_bytes([f[4], f[5]]) as usize;
+        (0..n)
+            .map(|i| {
+                let r = 12 + 16 * i;
+                let at = u32::from_be_bytes(f[r + 8..r + 12].try_into().unwrap()) as usize;
+                let len = u32::from_be_bytes(f[r + 12..r + 16].try_into().unwrap()) as usize;
+                let mut data = f[at..at + len].to_vec();
+                if &f[r..r + 4] == b"head" {
+                    data[8..12].fill(0); // checkSumAdjustment is recomputed
+                }
+                (f[r..r + 4].try_into().unwrap(), data)
+            })
+            .collect()
+    };
+    assert_eq!(tables(&sfnt), tables(ttf));
+    let families = photocraft_text::shared().lock().unwrap_or_else(|e| e.into_inner()).fonts.register_font_data(sfnt);
+    assert!(families.iter().any(|f| f == "JetBrains Mono"), "{families:?}");
+}
+
+#[test]
+fn woff2_failures_are_errors() {
+    assert!(fonts::woff2_to_sfnt(b"").is_err());
+    assert!(fonts::woff2_to_sfnt(b"not a font at all").is_err());
+    let mut woff2 = crate::testing::woff2_stored(include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf")).unwrap();
+    for at in [12, 20, 48, 60, woff2.len() / 2] {
+        let mut bad = woff2.clone();
+        bad[at] ^= 0xff;
+        let _ = fonts::woff2_to_sfnt(&bad); // never panics
+    }
+    woff2.truncate(woff2.len() / 2);
+    assert!(fonts::woff2_to_sfnt(&woff2).is_err());
+    assert!(fonts::woff2_to_sfnt(&vec![0; fonts::MAX_WOFF2_BYTES + 1]).is_err());
 }

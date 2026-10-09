@@ -532,9 +532,29 @@ pub(crate) fn title_row(ui: &mut egui::Ui, title: &str) -> bool {
 
 /// A floating panel window; `movable` follows Window › Workspace › Lock Workspace.
 pub(crate) fn panel_window(app: &PhotocraftApp, ctx: &egui::Context, id: &str, title: &str, offset: egui::Vec2, width: f32, body: impl FnOnce(&mut egui::Ui)) {
+    panel_window_in(app, ctx, id, title, (app.last_canvas_rect, offset), width, None, body);
+}
+
+/// [`panel_window`] placed at `offset` from `area`'s top right, whose content may fill `height`
+/// points (a scroll area takes the room it is given; without a height, egui offers 420).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn panel_window_in(
+    app: &PhotocraftApp,
+    ctx: &egui::Context,
+    id: &str,
+    title: &str,
+    (canvas, offset): (egui::Rect, egui::Vec2),
+    width: f32,
+    height: Option<f32>,
+    body: impl FnOnce(&mut egui::Ui),
+) {
     let t = Tokens::get(ctx);
-    let canvas = app.last_canvas_rect;
-    egui::Window::new(title)
+    let window = egui::Window::new(title);
+    let window = match height {
+        Some(h) => window.default_height(h),
+        None => window,
+    };
+    window
         .id(egui::Id::new(id))
         .title_bar(false)
         .resizable(false)

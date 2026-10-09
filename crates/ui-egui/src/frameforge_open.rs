@@ -1,19 +1,26 @@
-//! FrameForge open seam. Server-provided fonts can later supply ImportOptions' resolver.
+//! FrameForge open seam: File › Open, and Window › FrameForge's Create (`frameforge_ui`), whose
+//! import options resolve the server's fonts.
 use crate::PhotocraftApp;
+use photocraft_frameforge::{Archive, ImportOptions, ImportReport};
 pub(crate) fn is_frameforge(name: &str) -> bool {
     std::path::Path::new(name).extension().is_some_and(|e| e.eq_ignore_ascii_case("frameforge"))
 }
 pub(crate) fn open(app: &mut PhotocraftApp, name: &str, bytes: &[u8]) -> Result<Vec<String>, String> {
     let archive = photocraft_frameforge::read_archive(bytes)?;
-    #[cfg(not(target_arch = "wasm32"))]
-    photocraft_text::shared().lock().unwrap_or_else(|e| e.into_inner()).fonts.load_system_fonts();
-    let report = photocraft_frameforge::import_into(&mut app.session, &archive, &photocraft_frameforge::ImportOptions::default())?;
-    app.sync_views();
+    let report = import(app, &archive, &ImportOptions::default())?;
     app.ui.status = format!("Opened {name}");
     app.ui.status_error = false;
     crate::notices::io_warnings(app, &format!("Opened {name}"), &report.warnings);
-    photocraft_engine::automate_cmds::document_opened(&mut app.session);
     Ok(report.warnings)
+}
+/// Import `archive` as a new document (and make it the active one).
+pub(crate) fn import(app: &mut PhotocraftApp, archive: &Archive, options: &ImportOptions<'_>) -> Result<ImportReport, String> {
+    #[cfg(not(target_arch = "wasm32"))]
+    photocraft_text::shared().lock().unwrap_or_else(|e| e.into_inner()).fonts.load_system_fonts();
+    let report = photocraft_frameforge::import_into(&mut app.session, archive, options)?;
+    app.sync_views();
+    photocraft_engine::automate_cmds::document_opened(&mut app.session);
+    Ok(report)
 }
 
 #[cfg(test)]

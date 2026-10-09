@@ -835,6 +835,10 @@ pub struct UiState {
     #[serde(default)]
     pub analysis: crate::analysis_ui::AnalysisUi,
     pub timeline: crate::timeline_ui::TimelineUi,
+    /// Window › FrameForge (see `frameforge_ui`): the server and channel persist; the token,
+    /// images, concepts and requests never do.
+    #[serde(default)]
+    pub frameforge: crate::frameforge_ui::FrameForgeUi,
     /// Slice and Slice Select tools (see `slice_ui`).
     #[serde(default)]
     pub slices: crate::slice_ui::SliceUi,
@@ -940,6 +944,7 @@ impl Default for UiState {
             type_panels: Default::default(),
             analysis: Default::default(),
             timeline: Default::default(),
+            frameforge: Default::default(),
             slices: Default::default(),
             shell: Default::default(),
             layer_filter: Vec::new(),

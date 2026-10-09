@@ -2269,3 +2269,72 @@ fontWeight	Italic	Kursiv
 	Pattern Stamp Tool	Musterstempel-Werkzeug
 	Pattern Stamp	Musterstempel
 	Impressionist	Impressionistisch
+
+# Window › FrameForge (frameforge_ui.rs, frameforge_images.rs)
+	A FrameForge request is already running.	Eine FrameForge-Anfrage läuft bereits.
+	Access token	Zugriffstoken
+	Add current document	Aktuelles Dokument hinzufügen
+	Add image…	Bild hinzufügen…
+	Attach at most 4 images.	Hänge höchstens 4 Bilder an.
+	Brand notes	Markenhinweise
+	Brief	Briefing
+	Brief fields must be text.	Briefing-Felder müssen Text sein.
+	Cancel FrameForge Request	FrameForge-Anfrage abbrechen
+	Cancelled.	Abgebrochen.
+	Channel URL	Kanal-URL
+	Channel name	Kanalname
+	Choose a concept to create.	Wähle ein Konzept zum Erstellen.
+	Concepts	Konzepte
+	Connect	Verbinden
+	Connect to FrameForge	Mit FrameForge verbinden
+	Connected (api {api})	Verbunden (API {api})
+	Connecting…	Verbinde…
+	Couldn't reach the FrameForge server: {error}	FrameForge-Server nicht erreichbar: {error}
+	Create from FrameForge Concept	Aus FrameForge-Konzept erstellen
+	Created {name}	{name} erstellt
+	Creating {name}…	{name} wird erstellt…
+	Develop FrameForge Concepts	FrameForge-Konzepte entwickeln
+	Develop concepts	Konzepte entwickeln
+	Develop concepts first.	Entwickle zuerst Konzepte.
+	Developing concepts…	Konzepte werden entwickelt…
+	Enter a channel name.	Gib einen Kanalnamen ein.
+	Enter a video title.	Gib einen Videotitel ein.
+	Enter the FrameForge server URL (http:// or https://).	Gib die URL des FrameForge-Servers ein (http:// oder https://).
+	Font {family} {weight}: {error}	Schrift {family} {weight}: {error}
+	FrameForge	FrameForge
+	FrameForge needs a network-enabled build.	FrameForge benötigt einen Build mit Netzwerkzugriff.
+	Images	Bilder
+	Images must be data URLs, base64 file bytes or "document".	Bilder müssen Data-URLs, Base64-Dateibytes oder "document" sein.
+	Open a document first.	Öffne zuerst ein Dokument.
+	Remove image	Bild entfernen
+	Server	Server
+	Server URL	Server-URL
+	Server fonts are unavailable: {error}	Serverschriften sind nicht verfügbar: {error}
+	The FrameForge server answered HTTP {status}.	Der FrameForge-Server antwortete mit HTTP {status}.
+	The FrameForge server sent an invalid concept.	Der FrameForge-Server hat ein ungültiges Konzept gesendet.
+	The FrameForge server sent {count} concepts; PhotoCraft expects 2 or 3.	Der FrameForge-Server hat {count} Konzepte gesendet; PhotoCraft erwartet 2 oder 3.
+	The FrameForge server's answer is larger than {max} MiB.	Die Antwort des FrameForge-Servers ist größer als {max} MiB.
+	The FrameForge server's answer isn't valid JSON.	Die Antwort des FrameForge-Servers ist kein gültiges JSON.
+	The brief is larger than the server accepts (10 MiB).	Das Briefing ist größer, als der Server annimmt (10 MiB).
+	The images are larger than the server accepts (64 MiB in all).	Die Bilder sind größer, als der Server annimmt (insgesamt 64 MiB).
+	The server didn't answer.	Der Server hat nicht geantwortet.
+	The server's answer isn't a FrameForge project: {error}	Die Antwort des Servers ist kein FrameForge-Projekt: {error}
+	The token stays in memory and is never saved.	Das Token bleibt im Arbeitsspeicher und wird nie gespeichert.
+	There is no concept {n}.	Es gibt kein Konzept {n}.
+	This FrameForge server speaks API {api}; PhotoCraft speaks API 1.	Dieser FrameForge-Server spricht API {api}; PhotoCraft spricht API 1.
+	This build can't export documents.	Dieser Build kann keine Dokumente exportieren.
+	Try again in {seconds} s.	Versuche es in {seconds} s erneut.
+	Video summary	Videozusammenfassung
+	Video title	Videotitel
+	Warnings	Warnungen
+	generated	generiert
+	upload {n}	Upload {n}
+	{count} concepts are ready.	{count} Konzepte sind fertig.
+	{field} is too long: at most {max} characters.	{field} ist zu lang: höchstens {max} Zeichen.
+	{name} can't be used: {error}	{name} kann nicht verwendet werden: {error}
+	{name} doesn't fit the server's 2 MiB limit, even at 1600 pixels.	{name} passt selbst bei 1600 Pixeln nicht in das 2-MiB-Limit des Servers.
+	{name} is larger than {max} MiB.	{name} ist größer als {max} MiB.
+	{name} is too large to send (at most 12 MiB and 8192 pixels).	{name} ist zu groß zum Senden (höchstens 12 MiB und 8192 Pixel).
+	{seconds} s	{seconds} s
+	Enter the access token for {origin}.	Gib das Zugriffstoken für {origin} ein.
+	{name} isn't a PNG, JPEG or WebP image.	{name} ist kein PNG-, JPEG- oder WebP-Bild.

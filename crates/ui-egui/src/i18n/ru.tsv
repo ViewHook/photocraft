@@ -2504,3 +2504,72 @@ fontWeight	Italic	Курсив
 # Pattern Stamp tool
 	Pattern Stamp Tool	Инструмент узорный штамп
 	Impressionist	Импрессионист
+
+# Window › FrameForge (frameforge_ui.rs, frameforge_images.rs)
+	A FrameForge request is already running.	Запрос FrameForge уже выполняется.
+	Access token	Токен доступа
+	Add current document	Добавить текущий документ
+	Add image…	Добавить изображение…
+	Attach at most 4 images.	Приложите не более 4 изображений.
+	Brand notes	Заметки о бренде
+	Brief	Бриф
+	Brief fields must be text.	Поля брифа должны быть текстом.
+	Cancel FrameForge Request	Отменить запрос FrameForge
+	Cancelled.	Отменено.
+	Channel URL	URL канала
+	Channel name	Название канала
+	Choose a concept to create.	Выберите концепцию для создания.
+	Concepts	Концепции
+	Connect	Подключиться
+	Connect to FrameForge	Подключиться к FrameForge
+	Connected (api {api})	Подключено (api {api})
+	Connecting…	Подключение…
+	Couldn't reach the FrameForge server: {error}	Не удалось связаться с сервером FrameForge: {error}
+	Create from FrameForge Concept	Создать из концепции FrameForge
+	Created {name}	Создано: {name}
+	Creating {name}…	Создание {name}…
+	Develop FrameForge Concepts	Разработать концепции FrameForge
+	Develop concepts	Разработать концепции
+	Develop concepts first.	Сначала разработайте концепции.
+	Developing concepts…	Разработка концепций…
+	Enter a channel name.	Введите название канала.
+	Enter a video title.	Введите название видео.
+	Enter the FrameForge server URL (http:// or https://).	Введите URL сервера FrameForge (http:// или https://).
+	Font {family} {weight}: {error}	Шрифт {family} {weight}: {error}
+	FrameForge	FrameForge
+	FrameForge needs a network-enabled build.	FrameForge нужна сборка с доступом к сети.
+	Images	Изображения
+	Images must be data URLs, base64 file bytes or "document".	Изображения должны быть data URL, байтами файла в base64 или "document".
+	Open a document first.	Сначала откройте документ.
+	Remove image	Удалить изображение
+	Server	Сервер
+	Server URL	URL сервера
+	Server fonts are unavailable: {error}	Шрифты сервера недоступны: {error}
+	The FrameForge server answered HTTP {status}.	Сервер FrameForge ответил HTTP {status}.
+	The FrameForge server sent an invalid concept.	Сервер FrameForge прислал недопустимую концепцию.
+	The FrameForge server sent {count} concepts; PhotoCraft expects 2 or 3.	Число концепций от сервера FrameForge: {count}; PhotoCraft ожидает 2 или 3.
+	The FrameForge server's answer is larger than {max} MiB.	Ответ сервера FrameForge больше {max} МиБ.
+	The FrameForge server's answer isn't valid JSON.	Ответ сервера FrameForge не является корректным JSON.
+	The brief is larger than the server accepts (10 MiB).	Бриф больше, чем принимает сервер (10 МиБ).
+	The images are larger than the server accepts (64 MiB in all).	Изображения больше, чем принимает сервер (всего 64 МиБ).
+	The server didn't answer.	Сервер не ответил.
+	The server's answer isn't a FrameForge project: {error}	Ответ сервера не является проектом FrameForge: {error}
+	The token stays in memory and is never saved.	Токен хранится только в памяти и никогда не сохраняется.
+	There is no concept {n}.	Концепции {n} нет.
+	This FrameForge server speaks API {api}; PhotoCraft speaks API 1.	Этот сервер FrameForge использует API {api}; PhotoCraft использует API 1.
+	This build can't export documents.	Эта сборка не может экспортировать документы.
+	Try again in {seconds} s.	Повторите через {seconds} с.
+	Video summary	Краткое описание видео
+	Video title	Название видео
+	Warnings	Предупреждения
+	generated	сгенерировано
+	upload {n}	загрузка {n}
+	{count} concepts are ready.	Готово концепций: {count}.
+	{field} is too long: at most {max} characters.	{field}: слишком длинно, не более {max} символов.
+	{name} can't be used: {error}	Нельзя использовать {name}: {error}
+	{name} doesn't fit the server's 2 MiB limit, even at 1600 pixels.	{name} не укладывается в лимит сервера 2 МиБ даже при 1600 пикселях.
+	{name} is larger than {max} MiB.	{name} больше {max} МиБ.
+	{name} is too large to send (at most 12 MiB and 8192 pixels).	{name} слишком велико для отправки (не более 12 МиБ и 8192 пикселей).
+	{seconds} s	{seconds} с
+	Enter the access token for {origin}.	Введите токен доступа для {origin}.
+	{name} isn't a PNG, JPEG or WebP image.	{name} не является изображением PNG, JPEG или WebP.

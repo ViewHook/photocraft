@@ -2229,3 +2229,72 @@ fontWeight	Italic	Kurzíva
 	Pattern Stamp Tool	Nástroj razítko vzorku
 	Pattern Stamp	Razítko vzorku
 	Impressionist	Impresionista
+
+# Window › FrameForge (frameforge_ui.rs, frameforge_images.rs)
+	A FrameForge request is already running.	Požadavek FrameForge už probíhá.
+	Access token	Přístupový token
+	Add current document	Přidat aktuální dokument
+	Add image…	Přidat obrázek…
+	Attach at most 4 images.	Připojte nejvýše 4 obrázky.
+	Brand notes	Poznámky ke značce
+	Brief	Zadání
+	Brief fields must be text.	Pole zadání musí být text.
+	Cancel FrameForge Request	Zrušit požadavek FrameForge
+	Cancelled.	Zrušeno.
+	Channel URL	URL kanálu
+	Channel name	Název kanálu
+	Choose a concept to create.	Vyberte koncept k vytvoření.
+	Concepts	Koncepty
+	Connect	Připojit
+	Connect to FrameForge	Připojit k FrameForge
+	Connected (api {api})	Připojeno (api {api})
+	Connecting…	Připojování…
+	Couldn't reach the FrameForge server: {error}	Server FrameForge není dostupný: {error}
+	Create from FrameForge Concept	Vytvořit z konceptu FrameForge
+	Created {name}	Vytvořeno: {name}
+	Creating {name}…	Vytváří se {name}…
+	Develop FrameForge Concepts	Vyvinout koncepty FrameForge
+	Develop concepts	Vyvinout koncepty
+	Develop concepts first.	Nejdřív vyviňte koncepty.
+	Developing concepts…	Vyvíjejí se koncepty…
+	Enter a channel name.	Zadejte název kanálu.
+	Enter a video title.	Zadejte název videa.
+	Enter the FrameForge server URL (http:// or https://).	Zadejte URL serveru FrameForge (http:// nebo https://).
+	Font {family} {weight}: {error}	Písmo {family} {weight}: {error}
+	FrameForge	FrameForge
+	FrameForge needs a network-enabled build.	FrameForge vyžaduje sestavení s přístupem k síti.
+	Images	Obrázky
+	Images must be data URLs, base64 file bytes or "document".	Obrázky musí být datové URL, bajty souboru v base64 nebo "document".
+	Open a document first.	Nejdřív otevřete dokument.
+	Remove image	Odebrat obrázek
+	Server	Server
+	Server URL	URL serveru
+	Server fonts are unavailable: {error}	Písma serveru nejsou k dispozici: {error}
+	The FrameForge server answered HTTP {status}.	Server FrameForge odpověděl HTTP {status}.
+	The FrameForge server sent an invalid concept.	Server FrameForge poslal neplatný koncept.
+	The FrameForge server sent {count} concepts; PhotoCraft expects 2 or 3.	Počet konceptů ze serveru FrameForge: {count}; PhotoCraft očekává 2 nebo 3.
+	The FrameForge server's answer is larger than {max} MiB.	Odpověď serveru FrameForge je větší než {max} MiB.
+	The FrameForge server's answer isn't valid JSON.	Odpověď serveru FrameForge není platný JSON.
+	The brief is larger than the server accepts (10 MiB).	Zadání je větší, než server přijme (10 MiB).
+	The images are larger than the server accepts (64 MiB in all).	Obrázky jsou větší, než server přijme (celkem 64 MiB).
+	The server didn't answer.	Server neodpověděl.
+	The server's answer isn't a FrameForge project: {error}	Odpověď serveru není projekt FrameForge: {error}
+	The token stays in memory and is never saved.	Token zůstává v paměti a nikdy se neukládá.
+	There is no concept {n}.	Koncept {n} neexistuje.
+	This FrameForge server speaks API {api}; PhotoCraft speaks API 1.	Tento server FrameForge používá API {api}; PhotoCraft používá API 1.
+	This build can't export documents.	Toto sestavení neumí exportovat dokumenty.
+	Try again in {seconds} s.	Zkuste to znovu za {seconds} s.
+	Video summary	Shrnutí videa
+	Video title	Název videa
+	Warnings	Upozornění
+	generated	vygenerováno
+	upload {n}	nahraný {n}
+	{count} concepts are ready.	Hotové koncepty: {count}.
+	{field} is too long: at most {max} characters.	{field}: příliš dlouhé, nejvýše {max} znaků.
+	{name} can't be used: {error}	{name} nelze použít: {error}
+	{name} doesn't fit the server's 2 MiB limit, even at 1600 pixels.	{name} se nevejde do limitu serveru 2 MiB ani při 1600 pixelech.
+	{name} is larger than {max} MiB.	{name} je větší než {max} MiB.
+	{name} is too large to send (at most 12 MiB and 8192 pixels).	{name} je příliš velký k odeslání (nejvýše 12 MiB a 8192 pixelů).
+	{seconds} s	{seconds} s
+	Enter the access token for {origin}.	Zadejte přístupový token pro {origin}.
+	{name} isn't a PNG, JPEG or WebP image.	{name} není obrázek PNG, JPEG ani WebP.

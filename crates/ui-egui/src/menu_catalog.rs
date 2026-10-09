@@ -766,6 +766,8 @@ pub static CATALOG: &[(&[&str], &str, Option<&str>, &str)] = &[
     (&["Window"], "Styles", None, "window.panel.styles"),
     (&["Window"], "Swatches", None, "window.panel.swatches"),
     (&["Window"], "Timeline", None, "window.panel.timeline"),
+    // Not a Photoshop panel: FrameForge concepts become editable documents (`frameforge_ui`).
+    (&["Window"], "FrameForge", None, "window.panel.frameforge"),
     (&["Window"], "Tool Presets", None, "window.panel.toolPresets"),
     (&["Window"], "---", None, "---"),
     (&["Window"], "Options", None, "window.panel.options"),

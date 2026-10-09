@@ -114,7 +114,8 @@ pub(crate) fn list_images(dir: &str) -> Result<Vec<String>> {
     Err(EngineError::Other(format!("cannot list {dir}: no file system on the web")))
 }
 
-/// Extensions the batch commands pick up from a folder.
+/// Extensions the batch commands pick up from a folder (no folders on the web).
+#[cfg(not(target_arch = "wasm32"))]
 const OPENABLE: &[&str] = &[
     "psd", "psb", "pcraft", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "exr", "hdr", "qoi", "ico", "pnm", "ppm", "pgm", "heic", "heif",
     "hif", "dng", "cr2", "nef", "nrw", "arw", "pef", "svg", "svgz",

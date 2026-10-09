@@ -11,12 +11,21 @@ warnings and missing fonts. A failed import removes its partial document.
 FrameForge's top-first stack is inserted bottom-first. Images remain embedded
 Smart Objects, with vector masks for clipped slots. Text remains paragraph type,
 with explicit authored line breaks, shrink-to-fit, vertical centring, outside
-stroke and drop shadow. Unsupported layers/features produce named warnings.
+stroke and drop shadow. Unsupported layers/features produce named warnings. FrameForge's
+layout bookkeeping (`METADATA_KEYS`: `sourceWidth`, `sourceHeight`, `hasAlpha`,
+`backgroundRemoved`, `maskBounds`, `busyZones`, `generationModel`, `evidence`, …) doesn't change
+how a layer renders and imports silently; each key's FrameForge source is noted in `lib.rs`.
 
 The optional font resolver receives `(family, weight)` and returns TTF/OTF bytes.
 No fonts or client media are included. Native UI uses installed fonts; the web
 uses bundled fonts and reports missing families. Server integrations can provide
-their own resolver.
+their own resolver: Window › FrameForge fetches the WOFF2 fonts a concept uses from
+the server and converts them with `fonts::woff2_to_sfnt` (8 MiB cap, malformed input
+is an `Err`).
+
+`testing` (hidden) writes synthetic archives (`testing::zip`) and WOFF2 files
+(`testing::woff2_stored`: null transforms in uncompressed Brotli meta-blocks) for
+tests here and in the PhotoCraft shell.
 
 CLI:
 

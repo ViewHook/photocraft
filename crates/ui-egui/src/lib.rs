@@ -60,7 +60,9 @@ pub mod file_open;
 pub mod file_ui;
 pub mod fill_ui;
 pub mod filter_dialog;
+mod frameforge_images;
 mod frameforge_open;
+pub mod frameforge_ui;
 pub mod gallery_ui;
 pub mod gpu_canvas;
 pub mod gpu_status;
@@ -232,6 +234,59 @@ pub type OsEventsFn = Box<dyn FnMut() -> Vec<OsEvent>>;
 /// Where the OS pointer is now, in egui points within the window; `None` when unknown.
 pub type CursorPosFn = Box<dyn FnMut(&egui::Context) -> Option<egui::Pos2>>;
 
+/// An HTTP request for [`HttpFn`]. `Debug` shows header names only: values carry credentials.
+#[derive(Clone, Default, PartialEq)]
+pub struct HttpRequest {
+    /// `GET` or `POST`.
+    pub method: String,
+    pub url: String,
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
+    /// The longest response body accepted: the service stops reading and answers `Err` beyond it
+    /// (or when `Content-Length` announces more), so a server can't make the app allocate more.
+    pub max_response_bytes: usize,
+}
+
+impl std::fmt::Debug for HttpRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let names: Vec<&str> = self.headers.iter().map(|(name, _)| name.as_str()).collect();
+        f.debug_struct("HttpRequest")
+            .field("method", &self.method)
+            .field("url", &self.url)
+            .field("headers", &names)
+            .field("body", &self.body.len())
+            .field("max_response_bytes", &self.max_response_bytes)
+            .finish()
+    }
+}
+
+/// A server's answer to an [`HttpRequest`], whatever its status.
+#[derive(Clone, Default, PartialEq)]
+pub struct HttpResponse {
+    pub status: u16,
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
+}
+
+impl HttpResponse {
+    /// The first header named `name` (ASCII case-insensitive).
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+    }
+}
+
+impl std::fmt::Debug for HttpResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HttpResponse").field("status", &self.status).field("headers", &self.headers).field("body", &self.body.len()).finish()
+    }
+}
+
+/// Receives an [`HttpFn`] request's response, or why there is none (no connection, timeout,
+/// refused by CORS). Called once, from any thread.
+pub type HttpDone = Box<dyn FnOnce(Result<HttpResponse, String>) + Send>;
+/// Start an HTTP request and return at once; `done` gets the outcome later (see [`HttpDone`]).
+pub type HttpFn = Box<dyn Fn(HttpRequest, HttpDone)>;
+
 /// Platform services injected by the app binary (file dialogs, codecs), keeping this crate free of
 /// I/O dependencies.
 #[derive(Default)]
@@ -292,6 +347,9 @@ pub struct Services {
     pub read_displays: Option<monitor_status::ReadDisplaysFn>,
     /// The macOS menu bar, when the desktop app installed one; the in-window menus are hidden then.
     pub native_menu: Option<native_menu::NativeMenu>,
+    /// HTTP for Window › FrameForge (`frameforge_ui`); without it the panel says it needs a
+    /// network-enabled build.
+    pub http: Option<HttpFn>,
 }
 
 /// A document histogram being computed off the UI thread: (document, revision, receiver of
@@ -1139,6 +1197,7 @@ impl eframe::App for PhotocraftApp {
         type_panels_ui::windows(self, &ctx);
         analysis_ui::windows(self, &ctx);
         timeline_ui::windows(self, &ctx);
+        frameforge_ui::windows(self, &ctx);
         workspace_ui::windows(self, &ctx);
         palette::show(self, &ctx);
         dialogs::show(self, &ctx);
@@ -1548,6 +1607,9 @@ mod stamp_tests;
 
 #[cfg(test)]
 mod polygon_lasso_tests;
+
+#[cfg(test)]
+mod frameforge_ui_tests;
 
 #[cfg(test)]
 mod clipboard_tests {
