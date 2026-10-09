@@ -60,6 +60,7 @@ pub mod file_open;
 pub mod file_ui;
 pub mod fill_ui;
 pub mod filter_dialog;
+mod frameforge_open;
 pub mod gallery_ui;
 pub mod gpu_canvas;
 pub mod gpu_status;
@@ -786,6 +787,9 @@ impl PhotocraftApp {
     /// shown to the user). Files from disk go through [`open_file`](Self::open_file), which also
     /// remembers the path. Brush and gradient files go to the preset libraries instead.
     pub fn open_bytes(&mut self, name: &str, bytes: &[u8]) -> Result<Vec<String>, String> {
+        if frameforge_open::is_frameforge(name) {
+            return frameforge_open::open(self, name, bytes);
+        }
         if let Some(r) = preset_files_ui::open(self, name, bytes) {
             return r.map(|()| Vec::new());
         }
