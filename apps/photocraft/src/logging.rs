@@ -299,11 +299,18 @@ mod tests {
 
     #[test]
     fn http_client_traces_never_reach_the_log() {
-        for spec in ["trace", "ureq=trace", "ureq_proto=trace,trace", "ureq*=trace"] {
+        for spec in ["trace", "ureq=trace", "ureq_proto=trace,trace", "ureq*=trace", "ureq::run=trace", "debug,ureq_proto::client=trace"] {
             let f = Filter::parse(spec);
-            assert_eq!(f.level_for("ureq::run"), LevelFilter::Debug, "{spec}");
-            assert_eq!(f.level_for("ureq_proto::client"), LevelFilter::Debug, "{spec}");
+            for target in ["ureq", "ureq::run", "ureq_proto::client"] {
+                assert!(f.level_for(target) <= LevelFilter::Debug, "{spec}: {target}");
+            }
         }
+        // Where a directive reaches them they log at debug, not trace.
+        assert_eq!(Filter::parse("trace").level_for("ureq_proto::client"), LevelFilter::Debug);
+        assert_eq!(Filter::parse("ureq=trace").level_for("ureq::run"), LevelFilter::Debug);
+        assert_eq!(Filter::parse("ureq*=trace").level_for("ureq_proto::client"), LevelFilter::Debug);
+        // `ureq` names that crate only (`a` doesn't match `ab`): ureq_proto keeps the default.
+        assert_eq!(Filter::parse("ureq=trace").level_for("ureq_proto::client"), LevelFilter::Error);
         assert_eq!(Filter::parse(DEFAULT_FILTER).level_for("ureq::run"), LevelFilter::Warn);
         assert_eq!(Filter::parse("trace").level_for("photocraft"), LevelFilter::Trace);
     }
