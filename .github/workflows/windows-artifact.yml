@@ -65,10 +65,12 @@ jobs:
           key: windows-artifact-x64
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: true
-      # photocraft.wxs uses only the core WiX v4 schema, so no `wix extension add` is needed.
+      # photocraft.wxs uses the WiX UI and Util extensions (the setup wizard), so they are installed with the tool.
       - name: Install WiX
         shell: pwsh
-        run: dotnet tool install --global wix --version 5.0.2
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add -g WixToolset.UI.wixext/5.0.2 WixToolset.Util.wixext/5.0.2
       # No WINDOWS_CERTIFICATE / AZURE_* variables are set, so sign.ps1 prints a warning and leaves
       # the binaries and the MSI unsigned (exit code 0), as windows-arm64.yml relies on.
       - name: Build and package (unsigned)
