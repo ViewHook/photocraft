@@ -1552,22 +1552,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ehttp"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2f1b93eb2e039aaff63ce07cca59bd1dca02f2ce30075a17b619d2c42f56efc"
-dependencies = [
- "document-features",
- "futures-util",
- "js-sys",
- "ureq",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm-streams",
- "web-sys",
-]
-
-[[package]]
 name = "either"
 version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4230,7 +4214,6 @@ dependencies = [
  "dispatch2",
  "eframe",
  "egui",
- "ehttp",
  "fmv-macos-events",
  "futures-lite",
  "log",
@@ -4246,6 +4229,7 @@ dependencies = [
  "photocraft-doc",
  "photocraft-engine",
  "photocraft-format",
+ "photocraft-frameforge",
  "photocraft-geom",
  "photocraft-io",
  "photocraft-raster",
@@ -4254,6 +4238,7 @@ dependencies = [
  "rfd",
  "ron",
  "serde_json",
+ "ureq",
  "winit",
  "winresource",
  "winsafe",
@@ -4444,6 +4429,7 @@ dependencies = [
  "flate2",
  "image",
  "photocraft-engine",
+ "photocraft-format",
  "photocraft-io",
  "photocraft-text",
  "serde_json",
@@ -4619,6 +4605,7 @@ name = "photocraft-ui-egui"
 version = "0.6.0"
 dependencies = [
  "base64 0.22.1",
+ "blake3",
  "eframe",
  "egui",
  "egui_extras",
@@ -4669,7 +4656,6 @@ version = "0.6.0"
 dependencies = [
  "eframe",
  "egui",
- "ehttp",
  "js-sys",
  "log",
  "photocraft-codecs",
@@ -4681,6 +4667,7 @@ dependencies = [
  "photocraft-ui-egui",
  "rfd",
  "serde_json",
+ "ureq",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -6632,19 +6619,6 @@ checksum = "2608e8bb6d67fd68f5a8d0eb1363d6e7bcbc1f8ded5a0bd3a1e382462b876b22"
 dependencies = [
  "leb128fmt",
  "wasmparser 0.261.0",
-]
-
-[[package]]
-name = "wasm-streams"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15053d8d85c7eccdbefef60f06769760a563c7f0a9d6902a13d35c7800b0ad65"
-dependencies = [
- "futures-util",
- "js-sys",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
 ]
 
 [[package]]

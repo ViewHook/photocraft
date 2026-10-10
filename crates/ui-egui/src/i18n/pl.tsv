@@ -3496,3 +3496,7 @@ cameraRaw	Roughness	Chropowatość
 	Enter the access token for {origin}.	Wpisz token dostępu dla {origin}.
 	{name} isn't a PNG, JPEG or WebP image.	{name} nie jest obrazem PNG, JPEG ani WebP.
 	Use https:// for servers other than localhost.	Dla serwerów innych niż localhost użyj https://.
+	Decoding…	Dekodowanie…
+	The FrameForge server didn't answer in time.	Serwer FrameForge nie odpowiedział na czas.
+	Waiting for the images to decode…	Oczekiwanie na zdekodowanie obrazów…
+	the image decoder failed	dekoder obrazów zawiódł

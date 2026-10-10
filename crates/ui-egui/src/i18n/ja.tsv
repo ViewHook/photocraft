@@ -3496,3 +3496,7 @@ fontWeight	Italic	斜体
 	Enter the access token for {origin}.	{origin} のアクセストークンを入力してください。
 	{name} isn't a PNG, JPEG or WebP image.	{name} は PNG、JPEG、WebP 画像ではありません。
 	Use https:// for servers other than localhost.	localhost 以外のサーバーには https:// を使ってください。
+	Decoding…	デコード中…
+	The FrameForge server didn't answer in time.	FrameForge サーバーから時間内に応答がありませんでした。
+	Waiting for the images to decode…	画像のデコードを待っています…
+	the image decoder failed	画像デコーダーが失敗しました

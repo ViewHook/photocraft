@@ -2,19 +2,22 @@
 //! answers). No network: every answer below is made up in this file, and archives are
 //! synthetic (`photocraft_frameforge::testing`).
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use egui_kittest::kittest::Queryable;
 use serde_json::{Value, json};
 
 use crate::frameforge_ui::{self as ff, Token};
-use crate::{HttpDone, HttpFn, HttpRequest, HttpResponse, PhotocraftApp, Services};
+use crate::{HttpAbort, HttpDone, HttpFn, HttpRequest, HttpResponse, PhotocraftApp, Services};
 
 type Answer = Result<HttpResponse, String>;
 
 /// A fake server: answers by URL suffix, synchronously (or holds the answers while `hold`, or for
 /// URLs ending in one of `hold_only`). With `cap`, a body over the request's `max_response_bytes`
-/// is an `Err`, as the app adapters do.
+/// is an `Err`, as the app adapters do. Every request's abort handle records its URL in `aborts`
+/// (a held request stays held: its late answer is what the panel must ignore).
 #[derive(Clone, Default)]
 struct Fake {
     routes: Arc<Mutex<Vec<(String, Answer)>>>,
@@ -23,6 +26,7 @@ struct Fake {
     hold_only: Arc<Mutex<Vec<String>>>,
     held: Arc<Mutex<Vec<(String, HttpDone)>>>,
     cap: Arc<Mutex<bool>>,
+    aborts: Arc<Mutex<Vec<String>>>,
 }
 
 impl Fake {
@@ -36,20 +40,28 @@ impl Fake {
         Box::new(move |req: HttpRequest, done: HttpDone| {
             let (url, max) = (req.url.clone(), req.max_response_bytes);
             fake.log.lock().unwrap().push(req);
+            let (aborts, aborted) = (fake.aborts.clone(), url.clone());
+            let abort = HttpAbort::new(move || aborts.lock().unwrap().push(aborted));
             if *fake.hold.lock().unwrap() || fake.hold_only.lock().unwrap().iter().any(|s| url.ends_with(s.as_str())) {
                 fake.held.lock().unwrap().push((url, done));
-                return;
+                return abort;
             }
             let answer = fake.routes.lock().unwrap().iter().find(|(s, _)| url.ends_with(s.as_str())).map(|(_, a)| a.clone());
             let answer = answer.unwrap_or_else(|| Err(format!("no route for {url}")));
             if *fake.cap.lock().unwrap() && answer.as_ref().is_ok_and(|r| r.body.len() > max) {
-                return done(Err(format!("the response is larger than {max} bytes")));
+                done(Err(format!("the response is larger than {max} bytes")));
+                return abort;
             }
             done(answer);
+            abort
         })
     }
     fn requests(&self) -> Vec<HttpRequest> {
         self.log.lock().unwrap().clone()
+    }
+    /// The URLs of the requests aborted so far, in order.
+    fn aborted(&self) -> Vec<String> {
+        self.aborts.lock().unwrap().clone()
     }
     fn release(&self, answer: Result<HttpResponse, String>) {
         for (_, done) in self.held.lock().unwrap().drain(..) {
@@ -74,7 +86,12 @@ fn services(fake: &Fake) -> Services {
 }
 
 fn app(fake: &Fake) -> PhotocraftApp {
-    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), services(fake));
+    app_on(services(fake))
+}
+
+/// [`app`] with these services.
+fn app_on(services: Services) -> PhotocraftApp {
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), services);
     let f = &mut app.ui.frameforge;
     f.server_url = "https://frameforge.test/".into();
     f.token = Token::new("test-token", "https://frameforge.test/");
@@ -87,8 +104,22 @@ fn app(fake: &Fake) -> PhotocraftApp {
 fn run(app: &mut PhotocraftApp, id: &str, params: Value) -> Result<Value, String> {
     let ctx = egui::Context::default();
     let r = crate::menus::invoke(app, &ctx, id, params);
-    ff::poll(app, &ctx);
+    settle(app, &ctx);
     r
+}
+
+/// Poll until the images being decoded (on worker threads) are in, and a Develop waiting for
+/// them went out.
+fn settle(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    for _ in 0..6000 {
+        ff::poll(app, ctx);
+        let f = &app.ui.frameforge;
+        if f.decoding.is_empty() && !f.request.as_ref().is_some_and(ff::Request::is_waiting) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    panic!("the images never decoded");
 }
 
 fn poll(app: &mut PhotocraftApp) {
@@ -166,7 +197,12 @@ fn woff2() -> Vec<u8> {
 
 /// An app with two concepts developed from two images.
 fn developed(fake: &Fake) -> PhotocraftApp {
-    let mut app = app(fake);
+    developed_on(fake, services(fake))
+}
+
+/// [`developed`] with these services.
+fn developed_on(fake: &Fake, services: Services) -> PhotocraftApp {
+    let mut app = app_on(services);
     fake.route("/api/native/v1/concepts", json_answer(200, concepts(2)));
     let images = json!([data_url(&png(160, 90), "image/png"), {"name": "subject.png", "data": data_url(&png(64, 48), "image/png")}]);
     run(&mut app, ff::DEVELOP, json!({"images": images})).unwrap();
@@ -176,6 +212,95 @@ fn developed(fake: &Fake) -> PhotocraftApp {
 
 fn message(app: &PhotocraftApp) -> (String, bool) {
     app.ui.frameforge.message.clone().unwrap_or_default()
+}
+
+/// A command without [`settle`] (for images held mid-decode).
+fn invoke(app: &mut PhotocraftApp, id: &str, params: Value) -> Result<Value, String> {
+    crate::menus::invoke(app, &egui::Context::default(), id, params)
+}
+
+const LATE: &str = "The FrameForge server didn't answer in time.";
+
+/// A preferences store (`Services::load_prefs/save_prefs`): every text written, the last is
+/// what loads.
+#[derive(Clone, Default)]
+struct Prefs(Arc<Mutex<Vec<String>>>);
+
+impl Prefs {
+    fn with(text: &str) -> Prefs {
+        Prefs(Arc::new(Mutex::new(vec![text.to_string()])))
+    }
+    fn saved(&self) -> Option<String> {
+        self.0.lock().unwrap().last().cloned()
+    }
+    fn writes(&self) -> usize {
+        self.0.lock().unwrap().len()
+    }
+    fn services(&self, mut services: Services) -> Services {
+        let (a, b) = (self.0.clone(), self.0.clone());
+        services.load_prefs = Some(Box::new(move || a.lock().unwrap().last().cloned()));
+        services.save_prefs = Some(Box::new(move |s: &str| {
+            b.lock().unwrap().push(s.to_string());
+            Ok(())
+        }));
+        services
+    }
+}
+
+/// Default preferences with `entry` as the panel's; without one, as a file from before the
+/// panel (and before remembered dialogs: no `dialogs` at all).
+fn prefs_text(entry: Option<Value>) -> String {
+    let mut v = photocraft_engine::Session::new().prefs_value();
+    let prefs = v.as_object_mut().unwrap();
+    match entry {
+        Some(entry) => {
+            prefs.insert("dialogs".into(), json!({ ff::PANEL: entry }));
+        }
+        None => {
+            prefs.remove("dialogs");
+        }
+    }
+    v.to_string()
+}
+
+/// One frame of upkeep with the panel closed: its answers, then the preferences.
+fn frame(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    ff::windows(app, ctx);
+    crate::prefs_ui::tick(app, ctx);
+}
+
+/// A disk font cache (`Services::font_cache_load/store`).
+#[derive(Clone, Default)]
+struct DiskCache(Arc<Mutex<BTreeMap<String, Vec<u8>>>>);
+
+impl DiskCache {
+    fn services(&self, mut services: Services) -> Services {
+        let (a, b) = (self.0.clone(), self.0.clone());
+        services.font_cache_load = Some(Box::new(move |key: &str| a.lock().unwrap().get(key).cloned()));
+        services.font_cache_store = Some(Box::new(move |key: &str, entry: &[u8]| {
+            b.lock().unwrap().insert(key.to_string(), entry.to_vec());
+        }));
+        services
+    }
+    fn entries(&self) -> BTreeMap<String, Vec<u8>> {
+        self.0.lock().unwrap().clone()
+    }
+}
+
+/// A fake that answers a Create: /info, two fonts and the archive.
+fn create_routes(fake: &Fake) {
+    fake.route("/api/native/v1/info", json_answer(200, info()));
+    fake.route("/api/native/v1/fonts/anton-400.woff2", answer(200, woff2(), &[]));
+    fake.route("/api/native/v1/fonts/montserrat-900.woff2", answer(200, woff2(), &[]));
+    fake.route("/api/native/v1/materialize", answer(200, archive(), &[]));
+}
+
+fn font_requests(fake: &Fake) -> Vec<String> {
+    fake.requests().into_iter().map(|r| r.url).filter(|u| u.contains("/fonts/")).collect()
+}
+
+fn url(path: &str) -> String {
+    format!("https://frameforge.test/api/native/v1/{path}")
 }
 
 #[test]
@@ -778,6 +903,8 @@ fn frameforge_fonts_never_block_the_import() {
     assert_eq!(message(&app), ("Created Concept 1".into(), false));
     let w = &app.ui.frameforge.warnings;
     assert!(w.iter().any(|w| w == "Font Montserrat 900: The server didn't answer."), "{w:?}");
+    // The import went ahead without it: its transfer is stopped.
+    assert_eq!(fake.aborted(), ["https://frameforge.test/api/native/v1/fonts/montserrat-900.woff2"]);
     // The font answers after all: nothing changes.
     fake.release(answer(200, woff2(), &[]));
     poll(&mut app);
@@ -889,4 +1016,554 @@ fn frameforge_panel_evidence() {
     shoot(&mut h, "panel-concepts.png");
     crate::menus::invoke(h.state_mut(), &ctx, ff::CREATE, json!({"concept": 0})).unwrap();
     shoot(&mut h, "panel-created.png");
+}
+
+/// The server URL and channel are remembered through the preferences (a file natively, browser
+/// storage on the web), and nothing else: never the token, the video, images or concepts. A new
+/// session gets them back.
+#[test]
+fn frameforge_settings_are_remembered_without_secrets() {
+    let fake = Fake::default();
+    let prefs = Prefs::default();
+    let mut app = developed_on(&fake, prefs.services(services(&fake)));
+    app.ui.frameforge.channel_url = "https://www.youtube.com/@test".into();
+    app.ui.frameforge.channel_notes = "Yellow type, faces right.".into();
+    let ctx = egui::Context::default();
+    frame(&mut app, &ctx);
+    let text = prefs.saved().expect("the preferences were saved");
+    let saved: Value = serde_json::from_str(&text).unwrap();
+    let remembered = json!({"serverUrl": "https://frameforge.test/", "channel": {"name": "Test Channel", "url": "https://www.youtube.com/@test", "notes": "Yellow type, faces right."}});
+    assert_eq!(saved["dialogs"][ff::PANEL], remembered);
+    for secret in ["test-token", "I tried the thing", "A short brief.", "data:image", "subject.png", "Concept 1", "Bold yellow headlines"] {
+        assert!(!text.contains(secret), "{secret:?} was saved");
+    }
+    // Unchanged: nothing more is written. A change is.
+    let writes = prefs.writes();
+    frame(&mut app, &ctx);
+    frame(&mut app, &ctx);
+    assert_eq!(prefs.writes(), writes);
+    app.ui.frameforge.channel_name = "Renamed Channel".into();
+    frame(&mut app, &ctx);
+    assert_eq!(prefs.writes(), writes + 1);
+    let saved: Value = serde_json::from_str(&prefs.saved().unwrap()).unwrap();
+    assert_eq!(saved["dialogs"][ff::PANEL]["channel"]["name"], "Renamed Channel");
+
+    // The next session starts with them; the token and the brief's video are asked for again.
+    let next = PhotocraftApp::new(photocraft_engine::Session::new(), prefs.services(services(&fake)));
+    let f = &next.ui.frameforge;
+    assert_eq!(
+        (f.server_url.as_str(), f.channel_name.as_str(), f.channel_url.as_str(), f.channel_notes.as_str()),
+        ("https://frameforge.test/", "Renamed Channel", "https://www.youtube.com/@test", "Yellow type, faces right.")
+    );
+    assert!(!f.token.is_set() && f.video_title.is_empty() && f.video_summary.is_empty() && f.images.is_empty() && f.concepts.is_none());
+}
+
+/// Preferences saved before the panel existed load as they are, and the panel writes nothing
+/// until there is something to remember. An entry that doesn't parse is ignored; text over the
+/// fields' limits is cut; anything else in it (a token) is never read.
+#[test]
+fn frameforge_older_or_damaged_preferences_load() {
+    let fake = Fake::default();
+    let ctx = egui::Context::default();
+    let prefs = Prefs::with(&prefs_text(None));
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), prefs.services(services(&fake)));
+    assert_eq!(app.ui.frameforge, ff::FrameForgeUi::default());
+    for _ in 0..3 {
+        frame(&mut app, &ctx);
+    }
+    let saved: Value = serde_json::from_str(&prefs.saved().unwrap()).unwrap();
+    assert!(saved["dialogs"].get(ff::PANEL).is_none(), "nothing to remember, nothing written: {}", saved["dialogs"]);
+
+    let load = |entry: Value| {
+        let prefs = Prefs::with(&prefs_text(Some(entry)));
+        PhotocraftApp::new(photocraft_engine::Session::new(), prefs.services(services(&fake))).ui.frameforge
+    };
+    for damaged in [json!(42), json!("https://frameforge.test"), json!({"serverUrl": 7}), json!({"channel": [1, 2]})] {
+        assert_eq!(load(damaged.clone()), ff::FrameForgeUi::default(), "{damaged}");
+    }
+    let f = load(json!({"serverUrl": "https://frameforge.test", "token": "test-token", "future": {"x": 1}}));
+    assert_eq!((f.server_url.as_str(), f.channel_name.as_str()), ("https://frameforge.test", ""));
+    assert!(!f.token.is_set());
+    let long = |n: usize| "a".repeat(n);
+    let f = load(json!({"serverUrl": long(3000), "channel": {"name": long(500), "url": long(3000), "notes": long(5000)}}));
+    assert_eq!(
+        (f.server_url.chars().count(), f.channel_name.chars().count(), f.channel_url.chars().count(), f.channel_notes.chars().count()),
+        (ff::CHANNEL_URL, ff::CHANNEL_NAME, ff::CHANNEL_URL, ff::CHANNEL_NOTES)
+    );
+}
+
+/// Develop gives up after 300 s (egui time, from when it was sent): the panel says so, the call
+/// is aborted at the transport, and its late answer is dropped.
+#[test]
+fn frameforge_develop_gives_up_at_its_deadline() {
+    let fake = Fake::default();
+    let mut app = app(&fake);
+    *fake.hold.lock().unwrap() = true;
+    run(&mut app, ff::DEVELOP, json!({})).unwrap();
+    assert_eq!(fake.requests()[0].timeout, Some(Duration::from_secs(300)));
+    let ctx = egui::Context::default();
+    ff::poll_at(&mut app, &ctx, ff::SLOW_CALL - 0.1);
+    assert!(app.ui.frameforge.request.is_some() && fake.aborted().is_empty());
+    ff::poll_at(&mut app, &ctx, ff::SLOW_CALL);
+    assert_eq!(message(&app), (LATE.into(), true));
+    assert!(app.ui.frameforge.request.is_none());
+    assert_eq!(fake.aborted(), [url("concepts")]);
+    fake.release(json_answer(200, concepts(2)));
+    poll(&mut app);
+    assert!(app.ui.frameforge.concepts.is_none(), "the late answer is dropped");
+    assert_eq!(message(&app), (LATE.into(), true));
+    // The panel is free again.
+    *fake.hold.lock().unwrap() = false;
+    fake.route("/api/native/v1/concepts", json_answer(200, concepts(2)));
+    run(&mut app, ff::DEVELOP, json!({})).unwrap();
+    assert_eq!(app.ui.frameforge.concepts.as_ref().map(|c| c.list.len()), Some(2));
+}
+
+/// Connect (`/info`) gives up after 30 s. The transport timing out at the same deadline reads the
+/// same.
+#[test]
+fn frameforge_connect_gives_up_after_thirty_seconds() {
+    let fake = Fake::default();
+    let mut app = app(&fake);
+    *fake.hold.lock().unwrap() = true;
+    run(&mut app, ff::CONNECT, json!({})).unwrap();
+    assert_eq!(fake.requests()[0].timeout, Some(Duration::from_secs(30)));
+    let ctx = egui::Context::default();
+    ff::poll_at(&mut app, &ctx, ff::QUICK_CALL - 0.1);
+    assert_eq!(message(&app), ("Connecting…".into(), false));
+    ff::poll_at(&mut app, &ctx, ff::QUICK_CALL);
+    assert_eq!(message(&app), (LATE.into(), true));
+    assert!(app.ui.frameforge.request.is_none() && app.ui.frameforge.server.is_none());
+    assert_eq!(fake.aborted(), [url("info")]);
+    // Again; this time the transport's own timeout answers first.
+    run(&mut app, ff::CONNECT, json!({})).unwrap();
+    fake.release(Err("timed out reading the response".into()));
+    ff::poll_at(&mut app, &ctx, ff::QUICK_CALL);
+    assert_eq!(message(&app), (LATE.into(), true));
+    assert_eq!(fake.aborted().len(), 1, "an answered call isn't aborted");
+}
+
+/// Materialize gives up after 300 s: Create fails with the timeout and opens nothing.
+#[test]
+fn frameforge_materialize_gives_up_at_its_deadline() {
+    let fake = Fake::default();
+    let mut app = developed(&fake);
+    create_routes(&fake);
+    fake.hold_only.lock().unwrap().push("/api/native/v1/materialize".into());
+    run(&mut app, ff::CREATE, json!({"concept": 0})).unwrap();
+    let timeouts: Vec<_> = fake.requests().into_iter().filter(|r| !r.url.ends_with("/concepts")).map(|r| (r.url, r.timeout)).collect();
+    assert_eq!(timeouts[0], (url("materialize"), Some(Duration::from_secs(300))));
+    assert!(timeouts[1..].iter().all(|(_, t)| *t == Some(Duration::from_secs(30))), "{timeouts:?}");
+    let ctx = egui::Context::default();
+    ff::poll_at(&mut app, &ctx, ff::SLOW_CALL - 0.1);
+    assert!(app.ui.frameforge.request.is_some());
+    ff::poll_at(&mut app, &ctx, ff::SLOW_CALL);
+    assert_eq!(message(&app), (LATE.into(), true));
+    assert!(app.session.documents().is_empty() && app.ui.frameforge.request.is_none());
+    assert_eq!(fake.aborted(), [url("materialize")]);
+    fake.release(answer(200, archive(), &[]));
+    poll(&mut app);
+    assert!(app.session.documents().is_empty(), "the late archive is dropped");
+}
+
+/// A font gives up after 30 s; the archive still opens, with that font's warning.
+#[test]
+fn frameforge_a_font_gives_up_after_thirty_seconds() {
+    let fake = Fake::default();
+    let mut app = developed(&fake);
+    create_routes(&fake);
+    fake.hold_only.lock().unwrap().extend(["/api/native/v1/materialize".to_string(), "/fonts/montserrat-900.woff2".to_string()]);
+    run(&mut app, ff::CREATE, json!({"concept": 0})).unwrap();
+    let ctx = egui::Context::default();
+    ff::poll_at(&mut app, &ctx, ff::QUICK_CALL - 0.1);
+    assert!(fake.aborted().is_empty());
+    ff::poll_at(&mut app, &ctx, ff::QUICK_CALL);
+    assert_eq!(fake.aborted(), [url("fonts/montserrat-900.woff2")]);
+    assert!(app.session.documents().is_empty(), "the archive isn't in yet");
+    fake.release_first(answer(200, archive(), &[]));
+    ff::poll_at(&mut app, &ctx, ff::QUICK_CALL + 1.0);
+    assert_eq!(message(&app), ("Created Concept 1".into(), false));
+    assert_eq!(app.session.documents().len(), 1);
+    let w = &app.ui.frameforge.warnings;
+    assert!(w.iter().any(|w| *w == format!("Font Montserrat 900: {LATE}")), "{w:?}");
+}
+
+/// Cancel stops every call of the request at the transport.
+#[test]
+fn frameforge_cancel_aborts_the_calls_in_flight() {
+    let fake = Fake::default();
+    let mut app = app(&fake);
+    *fake.hold.lock().unwrap() = true;
+    run(&mut app, ff::DEVELOP, json!({})).unwrap();
+    run(&mut app, ff::CANCEL, json!({})).unwrap();
+    assert_eq!(fake.aborted(), [url("concepts")]);
+    // A Create's: the archive and the fonts.
+    let fake = Fake::default();
+    let mut app = developed(&fake);
+    create_routes(&fake);
+    fake.hold_only.lock().unwrap().extend(["/materialize", "/anton-400.woff2", "/montserrat-900.woff2"].map(String::from));
+    run(&mut app, ff::CREATE, json!({"concept": 0})).unwrap();
+    assert!(fake.aborted().is_empty());
+    run(&mut app, ff::CANCEL, json!({})).unwrap();
+    let mut aborted = fake.aborted();
+    aborted.sort();
+    assert_eq!(aborted, [url("fonts/anton-400.woff2"), url("fonts/montserrat-900.woff2"), url("materialize")]);
+    assert!(app.ui.frameforge.request.is_none());
+}
+
+/// A Connect pressed while one runs (another server, a new token) replaces it: the first is
+/// aborted and its answer ignored.
+#[test]
+fn frameforge_a_new_connect_aborts_the_one_running() {
+    let fake = Fake::default();
+    let mut app = app(&fake);
+    *fake.hold.lock().unwrap() = true;
+    run(&mut app, ff::CONNECT, json!({})).unwrap();
+    assert!(crate::menus::is_enabled(&app, ff::CONNECT));
+    run(&mut app, ff::CONNECT, json!({"url": "https://other.test/", "token": "test-token-2"})).unwrap();
+    assert_eq!(fake.aborted(), [url("info")]);
+    let second = fake.requests().pop().unwrap();
+    assert_eq!(second.url, "https://other.test/api/native/v1/info");
+    assert!(second.headers.contains(&("Authorization".into(), "Bearer test-token-2".into())));
+    fake.release_first(json_answer(200, json!({"api": 1, "fonts": []})));
+    poll(&mut app);
+    assert_eq!(message(&app), ("Connecting…".into(), false), "the replaced Connect's answer is ignored");
+    assert!(app.ui.frameforge.server.is_none());
+    fake.release_first(json_answer(200, info()));
+    poll(&mut app);
+    assert_eq!(message(&app), ("Connected (api 1)".into(), false));
+    assert_eq!(app.ui.frameforge.server.as_ref().map(|s| s.fonts.len()), Some(4));
+}
+
+/// Closing the panel (Window › FrameForge) stops what it was doing: the request is aborted and
+/// images still decoding are dropped.
+#[test]
+fn frameforge_closing_the_panel_stops_its_work() {
+    let fake = Fake::default();
+    let mut app = app(&fake);
+    assert_eq!(invoke(&mut app, ff::PANEL, json!({})).unwrap(), json!({"open": true}));
+    *fake.hold.lock().unwrap() = true;
+    run(&mut app, ff::DEVELOP, json!({})).unwrap();
+    assert_eq!(invoke(&mut app, ff::PANEL, json!({})).unwrap(), json!({"open": false}));
+    assert_eq!(fake.aborted(), [url("concepts")]);
+    assert!(app.ui.frameforge.request.is_none());
+    fake.release(json_answer(200, concepts(2)));
+    poll(&mut app);
+    assert!(app.ui.frameforge.concepts.is_none());
+    // Images still decoding.
+    invoke(&mut app, ff::PANEL, json!({})).unwrap();
+    app.ui.frameforge.decode_mode = ff::DecodeMode::Held;
+    ff::add_image(&mut app, &egui::Context::default(), ff::Checked::new("still.png", png(64, 48))).unwrap();
+    let held = app.ui.frameforge.decoding[0].clone();
+    invoke(&mut app, ff::PANEL, json!({})).unwrap();
+    assert!(app.ui.frameforge.decoding.is_empty());
+    held.release();
+    poll(&mut app);
+    assert!(app.ui.frameforge.images.is_empty(), "its result is dropped");
+}
+
+/// The panel in a harness, drawn over a 1200×1600 canvas.
+fn harness(app: PhotocraftApp) -> egui_kittest::Harness<'static, PhotocraftApp> {
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1200.0, 1600.0)).build_ui_state(
+        |ui, app: &mut PhotocraftApp| {
+            let ctx = ui.ctx().clone();
+            app.last_canvas_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 1600.0));
+            if ctx.fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                ff::windows(app, &ctx);
+            }
+        },
+        app,
+    );
+    PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+    h.run_steps(4);
+    h
+}
+
+/// The panel's × closes it like Window › FrameForge does: the request in flight is aborted.
+#[test]
+fn frameforge_the_close_button_aborts_the_request() {
+    let fake = Fake::default();
+    let mut app = app(&fake);
+    app.ui.frameforge.open = true;
+    *fake.hold.lock().unwrap() = true;
+    run(&mut app, ff::DEVELOP, json!({})).unwrap();
+    let mut h = harness(app);
+    let panel = h.ctx.memory(|m| m.area_rect(egui::Id::new("frameforge"))).unwrap();
+    // The title label (the window itself is also labelled "FrameForge").
+    let title_label = egui_kittest::kittest::By::new().label("FrameForge").role(egui::accesskit::Role::Label);
+    let title = h.query_all(title_label).map(|n| n.rect()).filter(|r| panel.contains_rect(*r)).min_by(|a, b| a.top().total_cmp(&b.top())).unwrap();
+    // The × is the title row's last item: a 20-point icon button with a tooltip and no label.
+    let by = egui_kittest::kittest::By::new().role(egui::accesskit::Role::Unknown);
+    let close = h
+        .query_all(by)
+        .filter(|n| {
+            let r = n.rect();
+            panel.contains_rect(r) && (r.width() - 20.0).abs() < 1.0 && (r.height() - 20.0).abs() < 1.0 && (r.center().y - title.center().y).abs() < 8.0
+        })
+        .max_by(|a, b| a.rect().right().total_cmp(&b.rect().right()))
+        .expect("the title row's close button");
+    close.click();
+    h.run_steps(2);
+    assert!(!h.state().ui.frameforge.open, "the × closed the panel");
+    assert!(h.state().ui.frameforge.request.is_none());
+    assert_eq!(fake.aborted(), [url("concepts")]);
+}
+
+/// Creating twice from the same server registers its fonts once: the second import adds no
+/// families and no faces.
+#[test]
+fn frameforge_creating_twice_adds_no_font_faces() {
+    let count = || {
+        let mut text = photocraft_text::shared().lock().unwrap_or_else(|e| e.into_inner());
+        (text.fonts.families().len(), text.fonts.faces("JetBrains Mono").len())
+    };
+    let fake = Fake::default();
+    let mut app = developed(&fake);
+    create_routes(&fake);
+    run(&mut app, ff::CREATE, json!({"concept": 0})).unwrap();
+    assert_eq!(app.session.documents().len(), 1);
+    let first = count();
+    run(&mut app, ff::CREATE, json!({"concept": 1})).unwrap();
+    assert_eq!(app.session.documents().len(), 2);
+    assert_eq!(count(), first);
+    // Another session's fetch (the same bytes again) adds none either.
+    let mut again = developed(&fake);
+    run(&mut again, ff::CREATE, json!({"concept": 0})).unwrap();
+    assert_eq!(again.session.documents().len(), 1);
+    assert_eq!(count(), first);
+}
+
+/// Converted fonts are kept through the disk-cache hooks: the next session uses them without a
+/// download; an entry that is damaged (or another font's) is downloaded again and rewritten.
+#[test]
+fn frameforge_fonts_are_kept_between_sessions() {
+    let cache = DiskCache::default();
+    let session = || {
+        let fake = Fake::default();
+        create_routes(&fake);
+        let mut app = developed_on(&fake, cache.services(services(&fake)));
+        run(&mut app, ff::CREATE, json!({"concept": 0})).unwrap();
+        assert_eq!(message(&app), ("Created Concept 1".into(), false));
+        assert!(!app.ui.frameforge.warnings.iter().any(|w| w.starts_with("Font ")), "{:?}", app.ui.frameforge.warnings);
+        font_requests(&fake)
+    };
+    assert_eq!(session().len(), 2);
+    let base = ff::base_url("https://frameforge.test/").unwrap();
+    let sfnt = photocraft_frameforge::fonts::woff2_to_sfnt(&woff2()).unwrap();
+    let entries = cache.entries();
+    assert_eq!(entries.len(), 2);
+    for file in ["anton-400.woff2", "montserrat-900.woff2"] {
+        let key = ff::font_cache::key(&base, file);
+        assert!(key.len() == 64 && key.bytes().all(|b| b.is_ascii_hexdigit()), "{key}");
+        assert_eq!(ff::font_cache::parse(&entries[&key], &base, file), Some(sfnt.clone()), "{file}");
+    }
+    assert!(session().is_empty(), "the next session uses the cache");
+    // Damage both: one cut short, one replaced with the other font's entry.
+    let (anton, montserrat) = (ff::font_cache::key(&base, "anton-400.woff2"), ff::font_cache::key(&base, "montserrat-900.woff2"));
+    {
+        let mut c = cache.0.lock().unwrap();
+        let other = c[&anton].clone();
+        c.insert(montserrat.clone(), other);
+        c.get_mut(&anton).unwrap().pop();
+    }
+    assert_eq!(session().len(), 2, "damaged entries are downloaded again");
+    let entries = cache.entries();
+    assert_eq!(ff::font_cache::parse(&entries[&anton], &base, "anton-400.woff2"), Some(sfnt.clone()));
+    assert_eq!(ff::font_cache::parse(&entries[&montserrat], &base, "montserrat-900.woff2"), Some(sfnt));
+    assert!(session().is_empty());
+}
+
+/// A cache entry is only used whole, for the server and file it was written for.
+#[test]
+fn frameforge_font_cache_entries_are_checked() {
+    use ff::font_cache::{entry, key, parse};
+    let (base, file) = ("https://frameforge.test", "anton-400.woff2");
+    let sfnt = b"\0\x01\0\0 not much of a font".to_vec();
+    let e = entry(base, file, b"wOF2 bytes", &sfnt);
+    assert_eq!(parse(&e, base, file), Some(sfnt.clone()));
+    assert_ne!(key(base, file), key("https://other.test", file));
+    assert_ne!(key(base, file), key(base, "inter-900.woff2"));
+    assert_eq!(parse(&e, "https://other.test", file), None);
+    assert_eq!(parse(&e, base, "inter-900.woff2"), None);
+    assert_eq!(parse(&e[..e.len() - 1], base, file), None, "cut short");
+    let mut flipped = e.clone();
+    *flipped.last_mut().unwrap() ^= 1;
+    assert_eq!(parse(&flipped, base, file), None, "corrupt");
+    assert_eq!(parse(&entry(base, file, b"", b""), base, file), None, "empty font");
+    assert_eq!(parse(&e[1..], base, file), None, "no header");
+    assert_eq!(parse(b"", base, file), None);
+    assert_eq!(parse(&vec![b'a'; 10_000], base, file), None);
+}
+
+/// Develop sends the brief only once the images added to it are decoded, in the order added.
+#[test]
+fn frameforge_develop_waits_for_images_still_decoding() {
+    let fake = Fake::default();
+    let mut app = app(&fake);
+    app.ui.frameforge.decode_mode = ff::DecodeMode::Held;
+    fake.route("/api/native/v1/concepts", json_answer(200, concepts(2)));
+    let images = json!([data_url(&png(160, 90), "image/png"), {"name": "subject.png", "data": data_url(&png(64, 48), "image/png")}]);
+    let r = invoke(&mut app, ff::DEVELOP, json!({"images": images})).unwrap();
+    assert_eq!(r, json!({"request": "develop", "images": 2, "waiting": true}));
+    assert_eq!(message(&app), ("Waiting for the images to decode…".into(), false));
+    assert_eq!(ff::inspect(&app)["decoding"], json!(["image-1", "subject.png"]));
+    assert!(!crate::menus::is_enabled(&app, ff::DEVELOP) && crate::menus::is_enabled(&app, ff::CANCEL));
+    poll(&mut app);
+    assert!(fake.requests().is_empty(), "nothing is sent while images decode");
+    let held = app.ui.frameforge.decoding.clone();
+    held[1].release();
+    poll(&mut app);
+    assert!(app.ui.frameforge.images.is_empty() && fake.requests().is_empty(), "results land in the order added");
+    held[0].release();
+    poll(&mut app);
+    assert_eq!(app.ui.frameforge.images.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["image-1", "subject.png"]);
+    let body: Value = serde_json::from_slice(&fake.requests().pop().unwrap().body).unwrap();
+    assert_eq!(body["images"].as_array().map(Vec::len), Some(2));
+    assert_eq!(app.ui.frameforge.concepts.as_ref().map(|c| c.list.len()), Some(2));
+}
+
+/// An image that passes the format check but doesn't decode fails the Develop waiting for it.
+#[test]
+fn frameforge_a_failed_decode_fails_the_waiting_develop() {
+    let fake = Fake::default();
+    let mut app = app(&fake);
+    app.ui.frameforge.decode_mode = ff::DecodeMode::Held;
+    let mut broken = png(16, 16);
+    broken.truncate(40);
+    invoke(&mut app, ff::DEVELOP, json!({"images": [{"name": "broken.png", "data": data_url(&broken, "image/png")}]})).unwrap();
+    assert!(app.ui.frameforge.request.as_ref().is_some_and(ff::Request::is_waiting));
+    app.ui.frameforge.decoding[0].release();
+    poll(&mut app);
+    let (text, error) = message(&app);
+    assert!(error && text.starts_with("broken.png can't be used: "), "{text}");
+    assert!(app.ui.frameforge.request.is_none() && app.ui.frameforge.images.is_empty() && app.ui.frameforge.decoding.is_empty());
+    assert!(fake.requests().is_empty());
+}
+
+/// Cancel drops images still decoding: their results go nowhere.
+#[test]
+fn frameforge_cancel_drops_images_still_decoding() {
+    let fake = Fake::default();
+    let mut app = app(&fake);
+    app.ui.frameforge.decode_mode = ff::DecodeMode::Held;
+    let ctx = egui::Context::default();
+    let r = ff::add_image(&mut app, &ctx, ff::Checked::new("still.png", png(64, 48))).unwrap();
+    assert_eq!(r, json!({"name": "still.png", "decoding": true}));
+    assert!(crate::menus::is_enabled(&app, ff::CANCEL));
+    let held = app.ui.frameforge.decoding[0].clone();
+    assert_eq!(invoke(&mut app, ff::CANCEL, json!({})).unwrap(), json!({"cancelled": true}));
+    assert!(app.ui.frameforge.decoding.is_empty());
+    held.release();
+    poll(&mut app);
+    assert!(app.ui.frameforge.images.is_empty());
+    // Four at most, counting the ones still decoding.
+    for i in 0..4 {
+        ff::add_image(&mut app, &ctx, ff::Checked::new(&format!("{i}.png"), png(8, 8))).unwrap();
+    }
+    assert_eq!(ff::add_image(&mut app, &ctx, ff::Checked::new("5.png", png(8, 8))).unwrap_err(), "Attach at most 4 images.");
+}
+
+/// Natively, added images decode on a worker thread: adding returns at once and the result
+/// lands on a later frame.
+#[test]
+fn frameforge_images_decode_on_a_worker_thread() {
+    let fake = Fake::default();
+    let mut app = app(&fake);
+    assert_eq!(app.ui.frameforge.decode_mode, ff::DecodeMode::Thread);
+    let ctx = egui::Context::default();
+    ff::add_image(&mut app, &ctx, ff::Checked::new("still.png", png(320, 180))).unwrap();
+    assert_eq!((app.ui.frameforge.decoding.len(), app.ui.frameforge.images.len()), (1, 0), "adding doesn't decode");
+    settle(&mut app, &ctx);
+    let image = &app.ui.frameforge.images[0];
+    assert_eq!((image.name.as_str(), image.width, image.height), ("still.png", 320, 180));
+    // A file that isn't an image never reaches a decoder.
+    let err = ff::add_image(&mut app, &ctx, ff::Checked::new("notes.txt", b"hello".to_vec())).unwrap_err();
+    assert_eq!(err, "notes.txt isn't a PNG, JPEG or WebP image.");
+}
+
+/// On the web (no threads) an image decodes on the UI thread, but not in the frame it was added
+/// in, and one per frame.
+#[test]
+fn frameforge_on_the_web_images_decode_one_per_later_frame() {
+    let fake = Fake::default();
+    let mut app = app(&fake);
+    app.ui.frameforge.decode_mode = ff::DecodeMode::NextFrame;
+    let ctx = egui::Context::default();
+    for name in ["a.png", "b.png"] {
+        ff::add_image(&mut app, &ctx, ff::Checked::new(name, png(32, 24))).unwrap();
+    }
+    let mut landed = Vec::new();
+    for _ in 0..3 {
+        poll(&mut app);
+        landed.push(app.ui.frameforge.images.len());
+    }
+    assert_eq!(landed, [0, 1, 2]);
+    assert!(app.ui.frameforge.decoding.is_empty());
+}
+
+/// An image decoding shows a placeholder row; its × drops it.
+#[test]
+fn frameforge_panel_shows_a_placeholder_while_an_image_decodes() {
+    let fake = Fake::default();
+    let mut app = app(&fake);
+    app.ui.frameforge.open = true;
+    app.ui.frameforge.decode_mode = ff::DecodeMode::Held;
+    ff::add_image(&mut app, &egui::Context::default(), ff::Checked::new("subject.png", png(64, 48))).unwrap();
+    let mut h = harness(app);
+    assert!(h.query_by_label("Decoding…").is_some());
+    assert!(h.query_by_label("Add image…").is_some());
+    h.get_by_label("Remove image").click();
+    h.run_steps(2);
+    assert!(h.query_by_label("Decoding…").is_none());
+    assert!(h.state().ui.frameforge.decoding.is_empty() && h.state().ui.frameforge.images.is_empty());
+}
+
+/// Visual evidence for review: `FRAMEFORGE_P3_EVIDENCE=<dir outside the repo>` writes
+/// settings-restored.png (the server and channel from saved preferences), decoding.png (an image
+/// decoding behind its placeholder, Develop waiting for it) and timeout.png (Develop past its
+/// deadline). Generated imagery only.
+#[test]
+#[ignore = "writes PNGs to $FRAMEFORGE_P3_EVIDENCE; run explicitly for visual QA"]
+fn frameforge_p3_evidence() {
+    let dir = std::path::PathBuf::from(std::env::var("FRAMEFORGE_P3_EVIDENCE").unwrap());
+    std::fs::create_dir_all(&dir).unwrap();
+    let fake = Fake::default();
+    fake.route("/api/native/v1/concepts", json_answer(200, concepts(3)));
+    let remembered = json!({"serverUrl": "https://frameforge.test", "channel": {"name": "Test Channel", "url": "https://www.youtube.com/@test", "notes": "Bold yellow type, faces on the right."}});
+    let prefs = Prefs::with(&prefs_text(Some(remembered)));
+    let services = prefs.services(services(&fake));
+    let mut h =
+        egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 1000.0)).with_pixels_per_point(1.0).with_max_steps(64).wgpu().build_eframe(move |cc| {
+            PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+            PhotocraftApp::new(photocraft_engine::Session::new(), services)
+        });
+    let ctx = h.ctx.clone();
+    h.run_steps(4);
+    crate::menus::invoke(h.state_mut(), &ctx, ff::PANEL, json!({})).unwrap();
+    let shoot = |h: &mut egui_kittest::Harness<'_, PhotocraftApp>, name: &str| {
+        for _ in 0..12 {
+            h.step();
+        }
+        h.render().unwrap().save(dir.join(name)).unwrap();
+    };
+    shoot(&mut h, "settings-restored.png");
+    let app = h.state_mut();
+    assert_eq!(app.ui.frameforge.channel_name, "Test Channel");
+    ff::set_access_token(app, "test-token".into());
+    app.ui.frameforge.video_title = "I tried the thing".into();
+    app.ui.frameforge.video_summary = "A short brief about trying the thing.".into();
+    app.ui.frameforge.decode_mode = ff::DecodeMode::Held;
+    ff::add_image(app, &ctx, ff::Checked::new("still.png", png(320, 180))).unwrap();
+    ff::add_image(app, &ctx, ff::Checked::new("subject.png", png(120, 160))).unwrap();
+    app.ui.frameforge.decoding[0].release();
+    crate::menus::invoke(app, &ctx, ff::DEVELOP, json!({})).unwrap();
+    shoot(&mut h, "decoding.png");
+    *fake.hold.lock().unwrap() = true;
+    let app = h.state_mut();
+    app.ui.frameforge.decoding[0].release();
+    ff::poll(app, &ctx);
+    assert_eq!(fake.requests().len(), 1, "the brief went out");
+    ff::poll_at(app, &ctx, ctx.input(|i| i.time) + ff::SLOW_CALL);
+    assert_eq!(message(app), (LATE.into(), true));
+    shoot(&mut h, "timeout.png");
 }

@@ -1,10 +1,12 @@
-//! Images for Window › FrameForge (`frameforge_ui`): decoded once when added, then sent as
-//! data URLs. `/concepts` gets a copy downscaled to fit its 2 MiB data-URL limit;
-//! `/materialize` gets the original file when the server accepts it as it is, otherwise a
-//! re-encode within its 12 MiB / 8192 px / 40-megapixel limits. Encoding goes through
-//! `photocraft-codecs`.
+//! Images for Window › FrameForge (`frameforge_ui`): checked when added, decoded once off the UI
+//! thread ([`Decoding`]), then sent as data URLs. `/concepts` gets a copy downscaled to fit its
+//! 2 MiB data-URL limit; `/materialize` gets the original file when the server accepts it as it
+//! is, otherwise a re-encode within its 12 MiB / 8192 px / 40-megapixel limits. Encoding goes
+//! through `photocraft-codecs`.
 
-use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::mpsc::{Receiver, TryRecvError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use base64::Engine as _;
 use photocraft_codecs::{ChannelLayout, DecodeOptions, EncodeOptions, Format, Image, Limits};
@@ -66,30 +68,10 @@ impl std::fmt::Debug for BriefImage {
 }
 
 impl BriefImage {
-    /// Decode `bytes` (PNG, JPEG or WebP: what the server takes) and prepare its copies.
+    /// Decode `bytes` (PNG, JPEG or WebP: what the server takes) and prepare its copies, here and
+    /// now. The panel decodes through [`Decoding`] instead.
     pub fn new(name: &str, bytes: Vec<u8>) -> Result<BriefImage, String> {
-        if bytes.len() > limit::INPUT_BYTES {
-            return Err(crate::i18n::fmt(tl!("{name} is larger than {max} MiB."), &[("name", name), ("max", &(limit::INPUT_BYTES >> 20).to_string())]));
-        }
-        // Checked before any decoder sees the bytes.
-        let mime = match photocraft_codecs::detect(&bytes) {
-            Some(Format::Png) => "image/png",
-            Some(Format::Jpeg) => "image/jpeg",
-            Some(Format::WebP) => "image/webp",
-            _ => return Err(crate::i18n::fmt(tl!("{name} isn't a PNG, JPEG or WebP image."), &[("name", name)])),
-        };
-        let (rgba, width, height, upright) = decode(&bytes)?;
-        let fits = bytes.len() <= limit::UPLOAD_BYTES
-            && width <= limit::UPLOAD_SIDE
-            && height <= limit::UPLOAD_SIDE
-            && u64::from(width) * u64::from(height) <= limit::UPLOAD_PIXELS;
-        let as_is = (fits && upright).then_some(mime);
-        let concept = fit(&rgba, width, height, limit::CONCEPT_EDGE, u64::MAX, concept_bytes(), false)
-            .map(|(mime, b)| Arc::new(data_url(mime, &b)))
-            .map_err(|_| crate::i18n::fmt(tl!("{name} doesn't fit the server's 2 MiB limit, even at 1600 pixels."), &[("name", name)]));
-        let (tw, th) = scaled(width, height, THUMB_EDGE, u64::MAX);
-        let thumb = egui::ColorImage::from_rgba_unmultiplied([tw as usize, th as usize], &resize(&rgba, width, height, tw, th));
-        Ok(BriefImage { name: name.to_string(), width, height, original: Arc::new(bytes), as_is, concept, thumb: Arc::new(thumb), texture: None })
+        Checked::new(name, bytes)?.decode()
     }
 
     /// The `/concepts` data URL.
@@ -110,6 +92,211 @@ impl BriefImage {
     }
 }
 
+/// A file accepted for a brief (its size, and PNG, JPEG or WebP by its signature) but not decoded
+/// yet: the check is cheap and runs where the file arrives; [`Checked::decode`] is the slow part.
+pub struct Checked {
+    name: String,
+    bytes: Vec<u8>,
+    mime: &'static str,
+}
+
+impl Checked {
+    pub fn new(name: &str, bytes: Vec<u8>) -> Result<Checked, String> {
+        if bytes.len() > limit::INPUT_BYTES {
+            return Err(crate::i18n::fmt(tl!("{name} is larger than {max} MiB."), &[("name", name), ("max", &(limit::INPUT_BYTES >> 20).to_string())]));
+        }
+        // Checked before any decoder sees the bytes.
+        let mime = match photocraft_codecs::detect(&bytes) {
+            Some(Format::Png) => "image/png",
+            Some(Format::Jpeg) => "image/jpeg",
+            Some(Format::WebP) => "image/webp",
+            _ => return Err(crate::i18n::fmt(tl!("{name} isn't a PNG, JPEG or WebP image."), &[("name", name)])),
+        };
+        Ok(Checked { name: name.to_string(), bytes, mime })
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Decode and prepare the copies: the `/concepts` data URL and the panel thumbnail.
+    pub fn decode(self) -> Result<BriefImage, String> {
+        let Checked { name, bytes, mime } = self;
+        let (rgba, width, height, upright) = decode(&bytes)?;
+        let fits = bytes.len() <= limit::UPLOAD_BYTES
+            && width <= limit::UPLOAD_SIDE
+            && height <= limit::UPLOAD_SIDE
+            && u64::from(width) * u64::from(height) <= limit::UPLOAD_PIXELS;
+        let as_is = (fits && upright).then_some(mime);
+        let concept = fit(&rgba, width, height, limit::CONCEPT_EDGE, u64::MAX, concept_bytes(), false)
+            .map(|(mime, b)| Arc::new(data_url(mime, &b)))
+            .map_err(|_| crate::i18n::fmt(tl!("{name} doesn't fit the server's 2 MiB limit, even at 1600 pixels."), &[("name", &name)]));
+        let (tw, th) = scaled(width, height, THUMB_EDGE, u64::MAX);
+        let thumb = egui::ColorImage::from_rgba_unmultiplied([tw as usize, th as usize], &resize(&rgba, width, height, tw, th));
+        Ok(BriefImage { name, width, height, original: Arc::new(bytes), as_is, concept, thumb: Arc::new(thumb), texture: None })
+    }
+}
+
+/// How the panel decodes added images.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DecodeMode {
+    /// On a worker thread; the result comes back over a channel drained every frame (native).
+    Thread,
+    /// On the UI thread, but on a frame after the one that drew the placeholder, so the panel
+    /// repaints first (the web: wasm has no threads).
+    NextFrame,
+    /// Only when the test releases it.
+    #[cfg(test)]
+    Held,
+}
+
+impl Default for DecodeMode {
+    fn default() -> Self {
+        if cfg!(target_arch = "wasm32") { DecodeMode::NextFrame } else { DecodeMode::Thread }
+    }
+}
+
+enum Job {
+    /// Not on wasm, which has no threads.
+    #[cfg(not(target_arch = "wasm32"))]
+    Thread(Receiver<Result<BriefImage, String>>),
+    /// Frames to wait before decoding on the UI thread.
+    NextFrame(Option<Checked>, u8),
+    #[cfg(test)]
+    Held(Option<Checked>),
+    Done(Result<BriefImage, String>),
+}
+
+/// An image being decoded: the panel shows a placeholder row until it is [`Decoding::done`].
+/// Dropping it (the row's ×, Cancel, a new `images` list) drops the result: a worker still
+/// decoding finishes and its answer goes nowhere.
+#[derive(Clone)]
+pub struct Decoding {
+    pub name: String,
+    job: Arc<Mutex<Job>>,
+}
+
+impl PartialEq for Decoding {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && Arc::ptr_eq(&self.job, &other.job)
+    }
+}
+
+impl std::fmt::Debug for Decoding {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Decoding").field("name", &self.name).finish()
+    }
+}
+
+impl Decoding {
+    /// Start decoding `image`; `ctx` repaints when a worker is done.
+    pub fn start(image: Checked, mode: DecodeMode, ctx: &egui::Context) -> Decoding {
+        let name = image.name.clone();
+        let job = match mode {
+            DecodeMode::Thread => thread(image, ctx),
+            DecodeMode::NextFrame => Job::NextFrame(Some(image), 1),
+            #[cfg(test)]
+            DecodeMode::Held => Job::Held(Some(image)),
+        };
+        Decoding { name, job: Arc::new(Mutex::new(job)) }
+    }
+
+    /// Move the decode on (one call per frame) and say whether its result is in. `ui_thread` is
+    /// whether this frame may still decode an image on the UI thread (one per frame).
+    pub fn step(&self, ctx: &egui::Context, ui_thread: &mut bool) -> bool {
+        let mut job = self.job.lock().unwrap_or_else(PoisonError::into_inner);
+        let next = match &mut *job {
+            #[cfg(not(target_arch = "wasm32"))]
+            Job::Thread(rx) => match rx.try_recv() {
+                Ok(result) => Job::Done(result),
+                Err(TryRecvError::Empty) => return false,
+                // The worker died without an answer.
+                Err(TryRecvError::Disconnected) => Job::Done(Err(tl!("the image decoder failed").into())),
+            },
+            Job::NextFrame(image, frames) => {
+                // Not in the frame that adds the image: that one draws its placeholder first.
+                if *frames > 0 || !*ui_thread {
+                    *frames = frames.saturating_sub(1);
+                    ctx.request_repaint();
+                    return false;
+                }
+                match image.take() {
+                    Some(image) => {
+                        *ui_thread = false;
+                        Job::Done(image.decode())
+                    }
+                    None => return false,
+                }
+            }
+            #[cfg(test)]
+            Job::Held(_) => return false,
+            Job::Done(_) => return true,
+        };
+        *job = next;
+        true
+    }
+
+    /// The result, once [`Decoding::step`] said it is in.
+    pub fn take(&self) -> Option<Result<BriefImage, String>> {
+        let mut job = self.job.lock().unwrap_or_else(PoisonError::into_inner);
+        match std::mem::replace(&mut *job, Job::NextFrame(None, 0)) {
+            Job::Done(result) => Some(result),
+            other => {
+                *job = other;
+                None
+            }
+        }
+    }
+
+    /// Tests: decode a held image now.
+    #[cfg(test)]
+    pub fn release(&self) {
+        let mut job = self.job.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Job::Held(image) = &mut *job
+            && let Some(image) = image.take()
+        {
+            *job = Job::Done(image.decode());
+        }
+    }
+}
+
+/// Decode on a worker thread, like the histogram job (`tone.rs`); when no thread can start,
+/// fall back to [`DecodeMode::NextFrame`].
+fn thread(image: Checked, ctx: &egui::Context) -> Job {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let (tx, rx) = std::sync::mpsc::channel();
+        // Shared so a failed spawn (which drops the closure) leaves the image here.
+        let slot = Arc::new(Mutex::new(Some(image)));
+        let (worker, ctx) = (slot.clone(), ctx.clone());
+        let spawned = std::thread::Builder::new()
+            .name("frameforge-decode".into())
+            .spawn(move || {
+                let image = worker.lock().unwrap_or_else(PoisonError::into_inner).take();
+                if let Some(image) = image {
+                    // The receiver is gone when the image was removed meanwhile: dropped.
+                    let _ = tx.send(image.decode());
+                    ctx.request_repaint();
+                }
+            })
+            .is_ok();
+        if spawned {
+            return Job::Thread(rx);
+        }
+        // No thread: the closure was dropped unrun and the image is still in the slot.
+        let left = slot.lock().unwrap_or_else(PoisonError::into_inner).take();
+        match left {
+            Some(image) => Job::NextFrame(Some(image), 1),
+            None => Job::Done(Err(tl!("the image decoder failed").into())),
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = ctx;
+        Job::NextFrame(Some(image), 1)
+    }
+}
+
 /// The largest encoded image whose data URL fits the `/concepts` limit.
 fn concept_bytes() -> usize {
     (limit::CONCEPT_DATA_URL - "data:image/jpeg;base64,".len()) / 4 * 3
@@ -123,7 +310,7 @@ pub fn data_url(mime: &str, bytes: &[u8]) -> String {
 /// The bytes come from anywhere: a decoder panic is an `Err` (native; wasm aborts on panics).
 fn decode(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32, bool), String> {
     #[cfg(not(target_arch = "wasm32"))]
-    return std::panic::catch_unwind(|| decode_unguarded(bytes)).unwrap_or_else(|_| Err("the image decoder failed".into()));
+    return std::panic::catch_unwind(|| decode_unguarded(bytes)).unwrap_or_else(|_| Err(tl!("the image decoder failed").into()));
     #[cfg(target_arch = "wasm32")]
     decode_unguarded(bytes)
 }

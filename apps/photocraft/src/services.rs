@@ -4,8 +4,9 @@ use photocraft_codecs::{ChannelLayout, EncodeOptions, Image, SampleType as CS};
 use photocraft_color::{ColorMode, SampleType};
 use photocraft_doc::{Document, Layer, Size};
 use photocraft_format::RecoveryStore;
+use photocraft_frameforge::font_store::FontStore;
 use photocraft_geom::Rect;
-use photocraft_ui_egui::{FileDialogAnswer, FileDialogReply, FileDialogRequest, Recoverable, Services};
+use photocraft_ui_egui::{FileDialogAnswer, FileDialogReply, FileDialogRequest, FontCacheLoadFn, FontCacheStoreFn, Recoverable, Services};
 use std::cell::RefCell;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -225,6 +226,25 @@ fn recovery_dir() -> Option<PathBuf> {
     config_dir().map(|d| d.join("Recovery"))
 }
 
+/// Window › FrameForge's converted server fonts, kept across sessions (bounded; see
+/// [`photocraft_frameforge::font_store`]).
+fn font_cache_dir() -> Option<PathBuf> {
+    config_dir().map(|d| d.join("FrameForge").join("Fonts"))
+}
+
+/// `Services::font_cache_load/store` on a [`FontStore`] in `dir` (none without a config directory).
+fn font_cache_services(dir: Option<PathBuf>) -> (Option<FontCacheLoadFn>, Option<FontCacheStoreFn>) {
+    let Some(store) = dir.map(|d| FontStore::new(d, photocraft_frameforge::font_store::BUDGET)) else { return (None, None) };
+    let reader = store.clone();
+    let load: FontCacheLoadFn = Box::new(move |key: &str| reader.load(key));
+    let keep: FontCacheStoreFn = Box::new(move |key: &str, bytes: &[u8]| {
+        if let Err(e) = store.store(key, bytes) {
+            log::warn!("FrameForge font cache: {e}");
+        }
+    });
+    (Some(load), Some(keep))
+}
+
 /// Write `bytes` crash-safely (temp file beside the target, fsync, rename, directory fsync; see
 /// [`photocraft_format::atomic`]). Every document write (Save, Save As, Export, Save for Web) and
 /// the preferences go through here, so a failed or interrupted save never destroys the old file.
@@ -362,6 +382,7 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
         Box::new(move |path: &str, bytes: &[u8]| workspace.write(path, bytes).map_err(|error| error.to_string())) as photocraft_ui_egui::AutomationWriteFn
     });
     let step: fn(&str, &serde_json::Value) -> photocraft_engine::Result<()> = photocraft_automation::workspace::authorize_desktop_engine_step;
+    let (font_cache_load, font_cache_store) = font_cache_services(font_cache_dir());
     let automation_authorize = automation.is_some().then_some(step);
     let automation_command = automation.map(|_| {
         Box::new(|id: &str, params: &serde_json::Value| {
@@ -435,6 +456,8 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
         is_wayland: false,
         // Window › FrameForge.
         http: Some(crate::http::service()),
+        font_cache_load,
+        font_cache_store,
         ..recovery_services(recovery_dir())
     }
 }
@@ -872,5 +895,23 @@ mod tests {
         std::fs::write(&bin, tga_1x1()).unwrap();
         assert_eq!(image_from_files(&[tga]), Some((1, 1, vec![255, 0, 0, 255])));
         assert!(image_from_files(&[bin]).is_none());
+    }
+
+    /// Window › FrameForge's converted fonts live in their own folder under the config directory
+    /// (the store's budget and eviction are tested in photocraft_frameforge::font_store).
+    #[test]
+    fn frameforge_fonts_are_cached_in_their_own_folder() {
+        let dir = temp("fonts");
+        let (load, store) = font_cache_services(Some(dir.join("FrameForge").join("Fonts")));
+        let (load, store) = (load.unwrap(), store.unwrap());
+        assert_eq!(load("abc"), None);
+        store("abc", b"font");
+        assert_eq!(load("abc").as_deref(), Some(b"font".as_slice()));
+        assert!(dir.join("FrameForge").join("Fonts").join("abc").is_file());
+        // A bad key is refused (and logged), never a path.
+        store("../abc", b"font");
+        assert!(!dir.join("FrameForge").join("abc").exists());
+        assert!(font_cache_services(None).0.is_none(), "no config directory, no cache");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

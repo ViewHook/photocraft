@@ -2453,3 +2453,7 @@ fontWeight	Italic	斜體
 	Enter the access token for {origin}.	請輸入 {origin} 的存取權杖。
 	{name} isn't a PNG, JPEG or WebP image.	{name} 不是 PNG、JPEG 或 WebP 影像。
 	Use https:// for servers other than localhost.	localhost 以外的伺服器請使用 https://。
+	Decoding…	正在解碼…
+	The FrameForge server didn't answer in time.	FrameForge 伺服器未及時回應。
+	Waiting for the images to decode…	正在等待影像解碼…
+	the image decoder failed	影像解碼器出錯

@@ -2546,3 +2546,7 @@ fontWeight	Italic	Corsivo
 	Enter the access token for {origin}.	Inserisci il token di accesso per {origin}.
 	{name} isn't a PNG, JPEG or WebP image.	{name} non è un'immagine PNG, JPEG o WebP.
 	Use https:// for servers other than localhost.	Usa https:// per i server diversi da localhost.
+	Decoding…	Decodifica in corso…
+	The FrameForge server didn't answer in time.	Il server FrameForge non ha risposto in tempo.
+	Waiting for the images to decode…	In attesa della decodifica delle immagini…
+	the image decoder failed	il decodificatore di immagini non è riuscito

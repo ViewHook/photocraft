@@ -2476,3 +2476,7 @@ fontWeight	Italic	Kurzíva
 	Enter the access token for {origin}.	Zadejte přístupový token pro {origin}.
 	{name} isn't a PNG, JPEG or WebP image.	{name} není obrázek PNG, JPEG ani WebP.
 	Use https:// for servers other than localhost.	Pro jiné servery než localhost použijte https://.
+	Decoding…	Dekódování…
+	The FrameForge server didn't answer in time.	Server FrameForge neodpověděl včas.
+	Waiting for the images to decode…	Čeká se na dekódování obrázků…
+	the image decoder failed	dekodér obrázků selhal

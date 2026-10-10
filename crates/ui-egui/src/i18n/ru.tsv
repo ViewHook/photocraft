@@ -2760,3 +2760,7 @@ fontWeight	Italic	Курсив
 	Enter the access token for {origin}.	Введите токен доступа для {origin}.
 	{name} isn't a PNG, JPEG or WebP image.	{name} не является изображением PNG, JPEG или WebP.
 	Use https:// for servers other than localhost.	Для серверов, кроме localhost, используйте https://.
+	Decoding…	Декодирование…
+	The FrameForge server didn't answer in time.	Сервер FrameForge не ответил вовремя.
+	Waiting for the images to decode…	Ожидание декодирования изображений…
+	the image decoder failed	сбой декодера изображений

@@ -3655,3 +3655,7 @@ cameraRaw	Whites	Witten
 	Enter the access token for {origin}.	Voer het toegangstoken voor {origin} in.
 	{name} isn't a PNG, JPEG or WebP image.	{name} is geen PNG-, JPEG- of WebP-afbeelding.
 	Use https:// for servers other than localhost.	Gebruik https:// voor andere servers dan localhost.
+	Decoding…	Decoderen…
+	The FrameForge server didn't answer in time.	De FrameForge-server heeft niet op tijd geantwoord.
+	Waiting for the images to decode…	Wachten tot de afbeeldingen zijn gedecodeerd…
+	the image decoder failed	de afbeeldingsdecoder is mislukt

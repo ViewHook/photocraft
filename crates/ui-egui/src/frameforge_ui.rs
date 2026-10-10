@@ -6,11 +6,18 @@
 //!
 //! Every button runs a shell command (`frameforge.connect`, `.develop`, `.create`, `.cancel`), so
 //! the control channel and tests drive the panel the same way. Requests run in the background
-//! and answer over a channel drained every frame ([`poll`]), like the histogram job. Only the
-//! server URL and the channel persist: the access token, images, concepts and requests stay in
-//! memory and are never serialized.
+//! and answer over a channel drained every frame ([`poll`]), like the histogram job. Each call has
+//! its own deadline in the panel ([`SLOW_CALL`], [`QUICK_CALL`]), whatever the transport does;
+//! a call that goes away (Cancel, a deadline, a superseding Connect, the panel closed) is dropped
+//! by the panel at once and its [`HttpAbort`] called (how soon the transport stops is up to it;
+//! see [`HttpAbort`]). Added images decode off the UI thread
+//! ([`Decoding`]). Only the server URL and the channel persist, in the preferences ([`restore`],
+//! [`persist`]): the access token, the video, images, concepts and requests stay in memory and are
+//! never serialized.
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -18,11 +25,11 @@ use egui::{Color32, RichText, vec2};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-pub use crate::frameforge_images::BriefImage;
 use crate::frameforge_images::limit;
+pub use crate::frameforge_images::{BriefImage, Checked, DecodeMode, Decoding};
 use crate::i18n::fmt;
 use crate::theme::Tokens;
-use crate::{HttpRequest, HttpResponse, PhotocraftApp};
+use crate::{HttpAbort, HttpRequest, HttpResponse, PhotocraftApp};
 
 pub const PANEL: &str = "window.panel.frameforge";
 pub const CONNECT: &str = "frameforge.connect";
@@ -44,6 +51,13 @@ const JSON_ANSWER: usize = 16 * 1024 * 1024;
 const ARCHIVE_ANSWER: usize = 128 * 1024 * 1024;
 /// Seconds Create waits for the concept's fonts once the archive is in: fonts never block it.
 pub(crate) const FONT_GRACE: f64 = 10.0;
+/// Seconds the panel gives each call before it says the server didn't answer in time and aborts
+/// it: `/concepts` and `/materialize` (the AI work), then `/info` and fonts. The transport gets the
+/// same deadline, so a silent server never holds a connection past it.
+pub(crate) const SLOW_CALL: f64 = 300.0;
+pub(crate) const QUICK_CALL: f64 = 30.0;
+/// The preferences entry (`Preferences::dialogs`) with the server URL and the channel.
+pub(crate) const REMEMBERED: &str = PANEL;
 /// `X-FrameForge-Warnings`: at most 20 strings of 200 characters.
 const WARNINGS: usize = 20;
 const WARNING_CHARS: usize = 200;
@@ -93,6 +107,66 @@ pub struct FrameForgeUi {
     /// What to scroll into view on the next draw.
     #[serde(skip)]
     pub reveal: Reveal,
+    /// Images still decoding, in the order they were added: placeholder rows until they land in
+    /// `images`.
+    #[serde(skip)]
+    pub decoding: Vec<Decoding>,
+    /// Where added images decode (a worker thread natively, a later frame on the web).
+    #[serde(skip)]
+    pub decode_mode: DecodeMode,
+}
+
+/// What the panel remembers across restarts: the server URL and the channel, in the preferences
+/// under [`REMEMBERED`]. That is how other panels and dialogs remember their settings (Camera Raw's
+/// scope, Edit › Fill, Liquify), and it is saved on both platforms: a file natively, browser
+/// storage on the web (`Services::save_prefs`). `UiState` itself is never written to disk. Never
+/// the token, the video, images, concepts or requests: this struct has no field for them.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct Remembered {
+    server_url: String,
+    channel: RememberedChannel,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+struct RememberedChannel {
+    name: String,
+    url: String,
+    notes: String,
+}
+
+/// Put the remembered server URL and channel back (`prefs_ui::load`, once the preferences are
+/// in). Preferences from before this panel have no entry: nothing changes. An entry that doesn't
+/// parse is ignored; text is cut to the fields' limits.
+pub(crate) fn restore(app: &mut PhotocraftApp) {
+    let Some(saved) = app.session.prefs().dialogs.get(REMEMBERED).cloned() else { return };
+    let Ok(r) = serde_json::from_value::<Remembered>(saved) else { return };
+    let cut = |s: String, max: usize| s.chars().take(max).collect::<String>();
+    let f = &mut app.ui.frameforge;
+    f.server_url = cut(r.server_url, CHANNEL_URL);
+    f.channel_name = cut(r.channel.name, CHANNEL_NAME);
+    f.channel_url = cut(r.channel.url, CHANNEL_URL);
+    f.channel_notes = cut(r.channel.notes, CHANNEL_NOTES);
+}
+
+/// Remember the server URL and channel when they changed (every frame: the preferences save
+/// themselves after a change, `prefs_ui::tick`). Nothing is written while there is nothing to
+/// remember and nothing was.
+pub(crate) fn persist(app: &mut PhotocraftApp) {
+    let f = &app.ui.frameforge;
+    let r = Remembered {
+        server_url: f.server_url.clone(),
+        channel: RememberedChannel { name: f.channel_name.clone(), url: f.channel_url.clone(), notes: f.channel_notes.clone() },
+    };
+    let saved = app.session.prefs().dialogs.get(REMEMBERED);
+    if saved.is_none() && r == Remembered::default() {
+        return;
+    }
+    let Ok(value) = serde_json::to_value(r) else { return };
+    if saved != Some(&value) {
+        app.session.prefs.edit(|p| p.dialogs.insert(REMEMBERED.into(), value));
+    }
 }
 
 /// A part of the panel to scroll into view once an answer arrives.
@@ -191,25 +265,71 @@ enum Call {
     Font(String),
 }
 
-type Answer = (Call, Result<HttpResponse, String>);
+impl Call {
+    /// Seconds the panel waits for it.
+    fn deadline(&self) -> f64 {
+        match self {
+            Call::Concepts | Call::Materialize => SLOW_CALL,
+            Call::Info | Call::Font(_) => QUICK_CALL,
+        }
+    }
+}
+
+/// An answer, by the id of the call it answers ([`InFlight::id`]).
+type Answer = (u64, Result<HttpResponse, String>);
+
+/// A call the server hasn't answered yet.
+struct InFlight {
+    id: u64,
+    call: Call,
+    /// egui time the panel gives up at.
+    deadline: f64,
+    abort: HttpAbort,
+}
+
+/// A request's unanswered calls. Whatever is left when the last handle on them goes is aborted:
+/// requests are also aborted explicitly ([`Request::abort`]), this is the backstop.
+#[derive(Default)]
+struct Calls {
+    next: u64,
+    list: Vec<InFlight>,
+}
+
+impl Calls {
+    fn abort_all(&mut self) {
+        for call in std::mem::take(&mut self.list) {
+            call.abort.abort();
+        }
+    }
+}
+
+impl Drop for Calls {
+    fn drop(&mut self) {
+        self.abort_all();
+    }
+}
 
 /// A request in flight: one or more calls answering on one channel. Dropping it (Cancel)
-/// drops whatever arrives later.
+/// drops whatever arrives later, and aborts the calls left.
 #[derive(Clone)]
 pub struct Request {
     pub kind: Kind,
     /// egui time it started at, for the elapsed seconds.
     pub started: f64,
     base: String,
-    pending: usize,
+    calls: Rc<RefCell<Calls>>,
     tx: Sender<Answer>,
     rx: Arc<Mutex<Receiver<Answer>>>,
+    /// Develop: waits for the images still decoding, then sends the brief.
+    waiting: bool,
     /// Develop: the channel, video and images it was sent with.
     brief: Option<(Value, Value, Vec<BriefImage>)>,
     /// Create: the materialize answer, held until the fonts are in.
     archive: Option<Result<HttpResponse, String>>,
     /// Create: egui time the materialize answer arrived (see [`FONT_GRACE`]).
     archive_at: Option<f64>,
+    /// Create: why it can't open anything (materialize ran out of time).
+    failure: Option<String>,
     /// Create: the (family, weight) faces the concept's type uses.
     faces: Vec<(String, u16)>,
 }
@@ -222,14 +342,43 @@ impl PartialEq for Request {
 
 impl std::fmt::Debug for Request {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Request").field("kind", &self.kind).field("started", &self.started).field("pending", &self.pending).finish()
+        f.debug_struct("Request").field("kind", &self.kind).field("started", &self.started).field("pending", &self.pending()).finish()
     }
 }
 
 impl Request {
     fn new(kind: Kind, started: f64, base: String) -> Request {
         let (tx, rx) = std::sync::mpsc::channel();
-        Request { kind, started, base, pending: 0, tx, rx: Arc::new(Mutex::new(rx)), brief: None, archive: None, archive_at: None, faces: Vec::new() }
+        Request {
+            kind,
+            started,
+            base,
+            calls: Rc::default(),
+            tx,
+            rx: Arc::new(Mutex::new(rx)),
+            waiting: false,
+            brief: None,
+            archive: None,
+            archive_at: None,
+            failure: None,
+            faces: Vec::new(),
+        }
+    }
+    /// Calls not answered yet.
+    pub fn pending(&self) -> usize {
+        self.calls.borrow().list.len()
+    }
+    /// A Develop waiting for its images to decode (nothing sent yet).
+    pub fn is_waiting(&self) -> bool {
+        self.waiting
+    }
+    /// Stop every call left, at the transport; their late answers go nowhere.
+    fn abort(&self) {
+        self.calls.borrow_mut().abort_all();
+    }
+    /// The earliest deadline left.
+    fn next_deadline(&self) -> Option<f64> {
+        self.calls.borrow().list.iter().map(|c| c.deadline).reduce(f64::min)
     }
 }
 
@@ -275,12 +424,15 @@ pub fn handles(id: &str) -> bool {
 
 pub fn is_enabled(app: &PhotocraftApp, id: &str) -> Option<bool> {
     let f = &app.ui.frameforge;
-    let idle = f.request.is_none() && app.services.http.is_some();
+    let network = app.services.http.is_some();
+    let idle = f.request.is_none() && network;
     Some(match id {
         PANEL => true,
-        CONNECT | DEVELOP => idle,
+        // A Connect replaces one still running.
+        CONNECT => idle || (network && f.request.as_ref().is_some_and(|r| r.kind == Kind::Connect)),
+        DEVELOP => idle,
         CREATE => idle && f.concepts.is_some(),
-        CANCEL => f.request.is_some(),
+        CANCEL => f.request.is_some() || !f.decoding.is_empty(),
         _ => return None,
     })
 }
@@ -290,6 +442,9 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Val
     let r = match id {
         PANEL => {
             app.ui.frameforge.open = !app.ui.frameforge.open;
+            if !app.ui.frameforge.open {
+                close(app);
+            }
             return Some(Ok(json!({ "open": app.ui.frameforge.open })));
         }
         CONNECT => connect(app, ctx, params),
@@ -308,7 +463,9 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Val
 /// `frameforge.connect {url?, token?}`: check the server with `GET /info`. A `token` given here
 /// belongs to this call's server.
 fn connect(app: &mut PhotocraftApp, ctx: &egui::Context, p: &Value) -> Result<Value, String> {
-    idle(app)?;
+    if app.ui.frameforge.request.as_ref().is_none_or(|r| r.kind != Kind::Connect) {
+        idle(app)?;
+    }
     if let Some(url) = text_param(p, "url")? {
         app.ui.frameforge.server_url = url.trim().to_string();
     }
@@ -317,6 +474,10 @@ fn connect(app: &mut PhotocraftApp, ctx: &egui::Context, p: &Value) -> Result<Va
         app.ui.frameforge.token = Token::new(token, &base);
     }
     guard_token(&mut app.ui.frameforge, &base)?;
+    // This Connect supersedes one still running (another URL, a new token): that one is aborted.
+    if let Some(old) = app.ui.frameforge.request.take() {
+        old.abort();
+    }
     let mut req = Request::new(Kind::Connect, now(ctx), base);
     send(app, ctx, &mut req, Call::Info, None)?;
     app.ui.frameforge.request = Some(req);
@@ -352,11 +513,37 @@ fn develop(app: &mut PhotocraftApp, ctx: &egui::Context, p: &Value) -> Result<Va
         if list.len() > limit::IMAGES {
             return Err(tl!("Attach at most 4 images.").into());
         }
-        let images = list.iter().enumerate().map(|(i, v)| image_param(app, i, v)).collect::<Result<Vec<_>, _>>()?;
-        app.ui.frameforge.images = images;
+        let checked = list.iter().enumerate().map(|(i, v)| image_param(app, i, v)).collect::<Result<Vec<_>, _>>()?;
+        // The list replaces the brief's images; any still decoding are dropped with their results.
+        let f = &mut app.ui.frameforge;
+        let mode = f.decode_mode;
+        f.images.clear();
+        f.decoding = checked.into_iter().map(|image| Decoding::start(image, mode, ctx)).collect();
     }
     let base = base_url(&app.ui.frameforge.server_url)?;
     guard_token(&mut app.ui.frameforge, &base)?;
+    brief(&app.ui.frameforge)?;
+    let f = &mut app.ui.frameforge;
+    let images = f.images.len() + f.decoding.len();
+    if images > limit::IMAGES {
+        return Err(tl!("Attach at most 4 images.").into());
+    }
+    let mut req = Request::new(Kind::Develop, now(ctx), base);
+    f.warnings.clear();
+    // Develop waits for images still decoding, then sends the brief as it is then ([`poll`]).
+    if !f.decoding.is_empty() {
+        req.waiting = true;
+        f.request = Some(req);
+        f.message = Some((tl!("Waiting for the images to decode…").into(), false));
+        return Ok(json!({ "request": "develop", "images": images, "waiting": true }));
+    }
+    develop_send(app, ctx, &mut req)?;
+    app.ui.frameforge.request = Some(req);
+    Ok(json!({ "request": "develop", "images": images }))
+}
+
+/// `POST /concepts` with the brief and its decoded images as they are now.
+fn develop_send(app: &mut PhotocraftApp, ctx: &egui::Context, req: &mut Request) -> Result<(), String> {
     let (channel, video) = brief(&app.ui.frameforge)?;
     let images = app.ui.frameforge.images.clone();
     if images.len() > limit::IMAGES {
@@ -367,14 +554,11 @@ fn develop(app: &mut PhotocraftApp, ctx: &egui::Context, p: &Value) -> Result<Va
     if body.len() > CONCEPTS_BODY {
         return Err(tl!("The brief is larger than the server accepts (10 MiB).").into());
     }
-    let mut req = Request::new(Kind::Develop, now(ctx), base);
-    req.brief = Some((channel, video, images.clone()));
-    send(app, ctx, &mut req, Call::Concepts, Some(body))?;
-    let f = &mut app.ui.frameforge;
-    f.request = Some(req);
-    f.warnings.clear();
-    f.message = Some((tl!("Developing concepts…").into(), false));
-    Ok(json!({ "request": "develop", "images": images.len() }))
+    req.waiting = false;
+    req.brief = Some((channel, video, images));
+    send(app, ctx, req, Call::Concepts, Some(body))?;
+    app.ui.frameforge.message = Some((tl!("Developing concepts…").into(), false));
+    Ok(())
 }
 
 /// `frameforge.create {concept: index}`: `POST /materialize` with that concept and the brief's
@@ -412,13 +596,26 @@ fn create(app: &mut PhotocraftApp, ctx: &egui::Context, p: &Value) -> Result<Val
     Ok(json!({ "request": "create", "concept": index, "name": name }))
 }
 
-/// `frameforge.cancel`: drop the request in flight; its answer is ignored when it comes.
+/// `frameforge.cancel`: abort the request in flight (its answer is ignored if it comes anyway)
+/// and drop the images still decoding.
 fn cancel(app: &mut PhotocraftApp) -> Value {
-    let cancelled = app.ui.frameforge.request.take().is_some();
+    let f = &mut app.ui.frameforge;
+    let request = f.request.take();
+    if let Some(request) = &request {
+        request.abort();
+    }
+    let decoding = !std::mem::take(&mut f.decoding).is_empty();
+    let cancelled = request.is_some() || decoding;
     if cancelled {
-        app.ui.frameforge.message = Some((tl!("Cancelled.").into(), false));
+        f.message = Some((tl!("Cancelled.").into(), false));
     }
     json!({ "cancelled": cancelled })
+}
+
+/// The panel closed (its ×, or Window › FrameForge): nothing keeps running behind it.
+fn close(app: &mut PhotocraftApp) {
+    app.ui.frameforge.open = false;
+    cancel(app);
 }
 
 fn idle(app: &PhotocraftApp) -> Result<(), String> {
@@ -510,8 +707,8 @@ fn brief(f: &FrameForgeUi) -> Result<(Value, Value), String> {
     Ok((channel, json!({ "title": title, "summary": f.video_summary })))
 }
 
-/// One `images` entry of `frameforge.develop`.
-fn image_param(app: &PhotocraftApp, index: usize, v: &Value) -> Result<BriefImage, String> {
+/// One `images` entry of `frameforge.develop`, checked (not decoded yet).
+fn image_param(app: &PhotocraftApp, index: usize, v: &Value) -> Result<Checked, String> {
     let invalid = || tl!("Images must be data URLs, base64 file bytes or \"document\".").to_string();
     let (name, data) = match v {
         Value::String(s) if s == "document" => return document_image(app),
@@ -532,33 +729,60 @@ fn image_param(app: &PhotocraftApp, index: usize, v: &Value) -> Result<BriefImag
     }
     use base64::Engine as _;
     let bytes = base64::engine::general_purpose::STANDARD.decode(encoded.trim()).map_err(|_| invalid())?;
-    BriefImage::new(&name, bytes).map_err(|e| fmt(tl!("{name} can't be used: {error}"), &[("name", &name), ("error", &e)]))
+    Checked::new(&name, bytes).map_err(|e| fmt(tl!("{name} can't be used: {error}"), &[("name", &name), ("error", &e)]))
 }
 
-/// The active document flattened to PNG through the export service.
-fn document_image(app: &PhotocraftApp) -> Result<BriefImage, String> {
+/// The active document flattened to PNG through the export service. The export runs here, on the
+/// UI thread; only the decode moves off it.
+fn document_image(app: &PhotocraftApp) -> Result<Checked, String> {
     let st = app.session.active().ok_or(tl!("Open a document first."))?;
     let export = app.services.export.as_ref().ok_or(tl!("This build can't export documents."))?;
     // No XMP: it can carry the text of every type layer (#647).
     let settings = crate::ExportSettings { xmp_all: false, ..Default::default() };
     let (bytes, _) = export(&st.doc, "frameforge.png", &settings)?;
-    BriefImage::new(&st.doc.name, bytes).map_err(|e| fmt(tl!("{name} can't be used: {error}"), &[("name", &st.doc.name), ("error", &e)]))
+    Checked::new(&st.doc.name, bytes).map_err(|e| fmt(tl!("{name} can't be used: {error}"), &[("name", &st.doc.name), ("error", &e)]))
 }
 
-/// Add an image to the brief (Add image…, Add current document).
-fn add_image(app: &mut PhotocraftApp, image: Result<BriefImage, String>) -> Result<Value, String> {
+/// Add an image to the brief (Add image…, Add current document): it decodes in the background
+/// behind a placeholder row.
+pub(crate) fn add_image(app: &mut PhotocraftApp, ctx: &egui::Context, image: Result<Checked, String>) -> Result<Value, String> {
     let f = &mut app.ui.frameforge;
-    if f.images.len() >= limit::IMAGES {
+    if f.images.len() + f.decoding.len() >= limit::IMAGES {
         return Err(tl!("Attach at most 4 images.").into());
     }
     let image = image?;
-    let r = json!({ "name": image.name, "width": image.width, "height": image.height });
-    // An image too large for /concepts stays listed with the reason; Develop reports it.
-    if let Err(e) = &image.concept {
-        f.message = Some((e.clone(), true));
-    }
-    f.images.push(image);
+    let r = json!({ "name": image.name(), "decoding": true });
+    f.decoding.push(Decoding::start(image, f.decode_mode, ctx));
     Ok(r)
+}
+
+/// Move finished decodes into the brief's images, in the order they were added. A failed one is
+/// reported, and fails a Develop waiting for it.
+fn land_decoded(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    let f = &mut app.ui.frameforge;
+    let mut ui_thread = true;
+    for d in &f.decoding {
+        d.step(ctx, &mut ui_thread);
+    }
+    while let Some(result) = f.decoding.first().and_then(Decoding::take) {
+        let d = f.decoding.remove(0);
+        match result {
+            Ok(image) => {
+                // An image too large for /concepts stays listed with the reason; Develop reports it.
+                if let Err(e) = &image.concept {
+                    f.message = Some((e.clone(), true));
+                }
+                f.images.push(image);
+            }
+            Err(e) => {
+                f.message = Some((fmt(tl!("{name} can't be used: {error}"), &[("name", &d.name), ("error", &e)]), true));
+                if f.request.as_ref().is_some_and(|r| r.waiting) {
+                    f.request = None;
+                    f.reveal = Reveal::Outcome;
+                }
+            }
+        }
+    }
 }
 
 /// Start `call` on the HTTP service. The answer arrives on `req`'s channel and wakes the UI.
@@ -578,18 +802,30 @@ fn send(app: &PhotocraftApp, ctx: &egui::Context, req: &mut Request, call: Call,
         headers.push(("Content-Type".to_string(), "application/json".to_string()));
     }
     let method = if body.is_some() { "POST" } else { "GET" };
-    let request =
-        HttpRequest { method: method.into(), url: format!("{}/api/native/v1/{path}", req.base), headers, body: body.unwrap_or_default(), max_response_bytes };
-    let (tx, ctx) = (req.tx.clone(), ctx.clone());
-    req.pending += 1;
-    http(
+    let seconds = call.deadline();
+    let request = HttpRequest {
+        method: method.into(),
+        url: format!("{}/api/native/v1/{path}", req.base),
+        headers,
+        body: body.unwrap_or_default(),
+        max_response_bytes,
+        timeout: Some(std::time::Duration::from_secs_f64(seconds)),
+    };
+    let id = {
+        let mut calls = req.calls.borrow_mut();
+        calls.next += 1;
+        calls.next
+    };
+    let (tx, waker) = (req.tx.clone(), ctx.clone());
+    let abort = http(
         request,
         Box::new(move |answer| {
             // Nobody listens any more after Cancel.
-            let _ = tx.send((call, answer));
-            ctx.request_repaint();
+            let _ = tx.send((id, answer));
+            waker.request_repaint();
         }),
     );
+    req.calls.borrow_mut().list.push(InFlight { id, call, deadline: now(ctx) + seconds, abort });
     Ok(())
 }
 
@@ -615,12 +851,17 @@ fn server_font<'a>(info: &'a ServerInfo, family: &str, weight: u16) -> Option<&'
     info.fonts.iter().find(|f| f.family.eq_ignore_ascii_case(family) && f.weight == weight)
 }
 
-/// Fetch the faces `req`'s concept uses that aren't converted yet, and nothing else.
+/// Fetch the faces `req`'s concept uses that aren't converted yet, and nothing else: converted
+/// this session, or in an earlier one (the disk cache, native only), they aren't fetched again.
 fn request_fonts(app: &mut PhotocraftApp, ctx: &egui::Context, req: &mut Request) {
     let Some(info) = app.ui.frameforge.server.clone() else { return };
     for (family, weight) in req.faces.clone() {
         let Some(font) = server_font(&info, &family, weight) else { continue };
         if matches!(app.ui.frameforge.fonts.0.get(&font.file), Some(Ok(_))) {
+            continue;
+        }
+        if let Some(sfnt) = font_cache::load(app, &req.base, &font.file) {
+            app.ui.frameforge.fonts.0.insert(font.file.clone(), Ok(Arc::new(sfnt)));
             continue;
         }
         if send(app, ctx, req, Call::Font(font.file.clone()), None).is_err() {
@@ -636,15 +877,38 @@ pub fn poll(app: &mut PhotocraftApp, ctx: &egui::Context) {
 
 /// [`poll`] at egui time `now`.
 pub(crate) fn poll_at(app: &mut PhotocraftApp, ctx: &egui::Context, now: f64) {
+    land_decoded(app, ctx);
     let Some(mut req) = app.ui.frameforge.request.take() else { return };
+    if req.waiting {
+        if !app.ui.frameforge.decoding.is_empty() {
+            app.ui.frameforge.request = Some(req);
+            return;
+        }
+        if let Err(e) = develop_send(app, ctx, &mut req) {
+            app.ui.frameforge.message = Some((e, true));
+            app.ui.frameforge.reveal = Reveal::Outcome;
+            return;
+        }
+    }
     loop {
         let next = req.rx.lock().unwrap_or_else(PoisonError::into_inner).try_recv();
-        let (call, answer) = match next {
+        let (id, answer) = match next {
             Ok(a) => a,
             Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
         };
-        req.pending = req.pending.saturating_sub(1);
-        answered(app, ctx, &mut req, call, answer);
+        // Answers to calls already given up on (or aborted) are dropped.
+        let Some(call) = take_call(&req, |c| c.id == id).pop() else { continue };
+        // The transport's own deadline is the panel's: one message for both.
+        if answer.is_err() && now >= call.deadline {
+            expired(app, &mut req, call.call);
+        } else {
+            answered(app, ctx, &mut req, call.call, answer);
+        }
+    }
+    // Calls past their deadline fail in the panel and stop at the transport.
+    for call in take_call(&req, |c| now >= c.deadline) {
+        call.abort.abort();
+        expired(app, &mut req, call.call);
     }
     // Create imports once the fonts settle, or FONT_GRACE after the archive arrived (fonts still
     // missing then fall back, and their late answers are dropped with the request). A failed
@@ -653,14 +917,51 @@ pub(crate) fn poll_at(app: &mut PhotocraftApp, ctx: &egui::Context, now: f64) {
         Kind::Create(index) => Some(index),
         _ => None,
     };
-    let failed = req.archive.as_ref().is_some_and(|a| !a.as_ref().is_ok_and(|r| (200..300).contains(&r.status)));
+    let failed = req.failure.is_some() || req.archive.as_ref().is_some_and(|a| !a.as_ref().is_ok_and(|r| (200..300).contains(&r.status)));
     if req.archive.is_some() && req.archive_at.is_none() {
         req.archive_at = Some(now);
     }
     let overdue = req.archive_at.is_some_and(|at| now - at >= FONT_GRACE);
     match create {
-        Some(index) if req.pending == 0 || failed || overdue => finish_create(app, req, index),
-        _ if req.pending > 0 => app.ui.frameforge.request = Some(req),
+        Some(index) if req.pending() == 0 || failed || overdue => finish_create(app, req, index),
+        _ if req.pending() > 0 => {
+            // Wake up for the next deadline even when nothing else repaints.
+            if let Some(at) = req.next_deadline() {
+                ctx.request_repaint_after(std::time::Duration::from_secs_f64((at - now).clamp(0.0, SLOW_CALL)));
+            }
+            app.ui.frameforge.request = Some(req);
+        }
+        _ => {}
+    }
+}
+
+/// Remove the calls matching `pick` from `req`'s list.
+fn take_call(req: &Request, pick: impl Fn(&InFlight) -> bool) -> Vec<InFlight> {
+    let mut calls = req.calls.borrow_mut();
+    let (taken, kept) = std::mem::take(&mut calls.list).into_iter().partition(|c| pick(c));
+    calls.list = kept;
+    taken
+}
+
+/// `call` didn't answer before its deadline.
+fn expired(app: &mut PhotocraftApp, req: &mut Request, call: Call) {
+    let late = tl!("The FrameForge server didn't answer in time.").to_string();
+    let f = &mut app.ui.frameforge;
+    match (req.kind, call) {
+        (Kind::Connect, Call::Info) => {
+            f.server = None;
+            f.message = Some((late, true));
+            f.reveal = Reveal::Outcome;
+        }
+        (Kind::Develop, Call::Concepts) => {
+            f.message = Some((late, true));
+            f.reveal = Reveal::Outcome;
+        }
+        (Kind::Create(_), Call::Materialize) => req.failure = Some(late),
+        (Kind::Create(_), Call::Info) => f.warnings.push(fmt(tl!("Server fonts are unavailable: {error}"), &[("error", &late)])),
+        (Kind::Create(_), Call::Font(file)) => {
+            f.fonts.0.insert(file, Err(late));
+        }
         _ => {}
     }
 }
@@ -702,20 +1003,30 @@ fn answered(app: &mut PhotocraftApp, ctx: &egui::Context, req: &mut Request, cal
             Err(e) => f.warnings.push(fmt(tl!("Server fonts are unavailable: {error}"), &[("error", &e)])),
         },
         (Kind::Create(_), Call::Font(file)) => {
-            let font = answer_bytes(answer, photocraft_frameforge::fonts::MAX_WOFF2_BYTES).and_then(|b| photocraft_frameforge::fonts::woff2_to_sfnt(&b));
-            f.fonts.0.insert(file, font.map(Arc::new));
+            let font = answer_bytes(answer, photocraft_frameforge::fonts::MAX_WOFF2_BYTES)
+                .and_then(|woff2| photocraft_frameforge::fonts::woff2_to_sfnt(&woff2).map(|sfnt| (woff2, sfnt)));
+            let font = font.map(|(woff2, sfnt)| {
+                font_cache::store(app, &req.base, &file, &woff2, &sfnt);
+                Arc::new(sfnt)
+            });
+            app.ui.frameforge.fonts.0.insert(file, font);
         }
         _ => {}
     }
 }
 
 /// The materialize answer is in and the fonts settled: open the project as a new document.
-fn finish_create(app: &mut PhotocraftApp, req: Request, index: usize) {
-    // Calls still unanswered: fonts (or /info) that missed the grace period.
-    let late = req.pending > 0;
+fn finish_create(app: &mut PhotocraftApp, mut req: Request, index: usize) {
+    // Calls still unanswered: fonts (or /info) that missed the grace period. Not needed any more.
+    let late = req.pending() > 0;
+    req.abort();
+    let failure = req.failure.take();
     let name = app.ui.frameforge.concepts.as_ref().map(|c| c.name(index).to_string()).unwrap_or_default();
     let mut warnings = std::mem::take(&mut app.ui.frameforge.warnings);
     let opened = (|| -> Result<photocraft_frameforge::ImportReport, String> {
+        if let Some(failure) = failure {
+            return Err(failure);
+        }
         let answer = req.archive.ok_or(tl!("The server didn't answer."))?;
         let (bytes, server_warnings) = materialized(answer)?;
         warnings.extend(server_warnings);
@@ -876,10 +1187,11 @@ pub fn inspect(app: &PhotocraftApp) -> Value {
         "tokenSet": f.token.is_set(),
         "network": app.services.http.is_some(),
         "api": f.server.as_ref().map(|s| s.api),
-        "request": f.request.as_ref().map(|r| json!({"kind": r.kind, "pending": r.pending})),
+        "request": f.request.as_ref().map(|r| json!({"kind": r.kind, "pending": r.pending(), "waiting": r.waiting})),
         "message": f.message.as_ref().map(|(text, error)| json!({"text": text, "error": error})),
         "warnings": f.warnings,
         "images": f.images.iter().map(|i| json!({"name": i.name, "width": i.width, "height": i.height, "error": i.concept.as_ref().err()})).collect::<Vec<_>>(),
+        "decoding": f.decoding.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(),
         "concepts": f.concepts.as_ref().map(|c| c.list.iter().filter_map(|c| c.get("name")).cloned().collect::<Vec<_>>()),
     })
 }
@@ -887,6 +1199,7 @@ pub fn inspect(app: &PhotocraftApp) -> Value {
 /// Draw Window › FrameForge (and apply answers that arrived, open or not).
 pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
     poll(app, ctx);
+    persist(app);
     if !app.ui.frameforge.open {
         return;
     }
@@ -901,14 +1214,16 @@ pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
         }
     }
     let mut act: Option<(&'static str, Value)> = None;
-    let (mut close, mut add_file, mut add_doc) = (false, false, false);
-    let mut remove = None;
+    let (mut closed, mut add_file, mut add_doc) = (false, false, false);
+    let (mut remove, mut remove_decoding) = (None, None);
     let busy = f.request.as_ref().map(|r| (r.kind, (now - r.started).max(0.0)));
+    // Connect stays available while a Connect runs: pressing it again replaces that one.
+    let can_connect = busy.is_none_or(|(kind, _)| kind == Kind::Connect);
     // Over the document area, as tall as it allows: the brief, images and concept cards scroll.
     let room = app.last_canvas_rect;
     let height = (room.height() - 48.0).clamp(420.0, 900.0);
     crate::analysis_ui::panel_window_in(app, ctx, "frameforge", tl!("FrameForge"), (room, vec2(0.0, 16.0)), 420.0, Some(height), |ui| {
-        close = crate::analysis_ui::title_row(ui, "FrameForge");
+        closed = crate::analysis_ui::title_row(ui, "FrameForge");
         if !network {
             ui.label(RichText::new(needs_network()).color(t.text_dim));
             return;
@@ -923,7 +1238,7 @@ pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 if ui.add(egui::TextEdit::singleline(&mut f.token.secret).password(true).desired_width(200.0)).changed() {
                     f.token.origin = base_url(&f.server_url).ok().map(|b| origin(&b).to_string());
                 }
-                ui.add_enabled_ui(busy.is_none(), |ui| {
+                ui.add_enabled_ui(can_connect, |ui| {
                     if crate::widgets::secondary_button(ui, tl!("Connect"), 0.0).clicked() {
                         act = Some((CONNECT, json!({})));
                     }
@@ -953,14 +1268,32 @@ pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
                                 image.concept.as_ref().err().map(|e| format!("\n{e}")).unwrap_or_default()
                             ));
                         }
-                        if crate::icons::button(ui, "x", 18.0, false, tl!("Remove image")).clicked() {
+                        if remove_button(ui) {
                             remove = Some(i);
+                        }
+                    });
+                }
+                // Images still decoding: a placeholder each, which can be removed (its result is
+                // dropped when it comes).
+                for (i, d) in f.decoding.iter().enumerate() {
+                    ui.vertical(|ui| {
+                        let (rect, _) = ui.allocate_exact_size(vec2(72.0, 54.0), egui::Sense::hover());
+                        ui.painter().rect_filled(rect, t.radius, t.card);
+                        ui.painter().rect_stroke(rect, t.radius, egui::Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside);
+                        ui.put(egui::Rect::from_center_size(rect.center() - vec2(0.0, 8.0), vec2(14.0, 14.0)), egui::Spinner::new().size(14.0).color(t.accent));
+                        ui.put(
+                            egui::Rect::from_center_size(rect.center() + vec2(0.0, 12.0), vec2(70.0, 14.0)),
+                            egui::Label::new(RichText::new(tl!("Decoding…")).size(10.5).color(t.text_dim)).truncate(),
+                        )
+                        .on_hover_text(&d.name);
+                        if remove_button(ui) {
+                            remove_decoding = Some(i);
                         }
                     });
                 }
             });
             ui.horizontal(|ui| {
-                ui.add_enabled_ui(busy.is_none() && f.images.len() < limit::IMAGES, |ui| {
+                ui.add_enabled_ui(busy.is_none() && f.images.len() + f.decoding.len() < limit::IMAGES, |ui| {
                     add_file = crate::widgets::secondary_button(ui, tl!("Add image…"), 0.0).clicked();
                     add_doc = crate::widgets::secondary_button(ui, tl!("Add current document"), 0.0).clicked();
                 });
@@ -1014,23 +1347,27 @@ pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
         });
     });
     app.ui.frameforge = f;
-    if close {
-        app.ui.frameforge.open = false;
+    if closed {
+        close(app);
     }
     if let Some(i) = remove.filter(|i| *i < app.ui.frameforge.images.len()) {
         app.ui.frameforge.images.remove(i);
     }
+    if let Some(i) = remove_decoding.filter(|i| *i < app.ui.frameforge.decoding.len()) {
+        app.ui.frameforge.decoding.remove(i);
+    }
     if add_doc {
         let image = document_image(app);
-        if let Err(e) = add_image(app, image) {
+        if let Err(e) = add_image(app, ctx, image) {
             app.ui.frameforge.message = Some((e, true));
         }
     }
     if add_file {
-        let r = app.pick_file_bytes(|app, name, bytes| {
+        let waker = ctx.clone();
+        let r = app.pick_file_bytes(move |app, name, bytes| {
             let name = crate::file_open::display_name(&name);
-            let image = BriefImage::new(&name, bytes).map_err(|e| fmt(tl!("{name} can't be used: {error}"), &[("name", &name), ("error", &e)]));
-            let r = add_image(app, image);
+            let image = Checked::new(&name, bytes).map_err(|e| fmt(tl!("{name} can't be used: {error}"), &[("name", &name), ("error", &e)]));
+            let r = add_image(app, &waker, image);
             if let Err(e) = &r {
                 app.ui.frameforge.message = Some((e.clone(), true));
             }
@@ -1055,6 +1392,13 @@ pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
         // The elapsed seconds.
         ctx.request_repaint_after(std::time::Duration::from_millis(500));
     }
+}
+
+/// An image row's ×, named for screen readers (and tests).
+fn remove_button(ui: &mut egui::Ui) -> bool {
+    let r = crate::icons::button(ui, "x", 18.0, false, tl!("Remove image"));
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Remove image")));
+    r.clicked()
 }
 
 fn field(ui: &mut egui::Ui, label: &str, text: &mut String, max: usize, hint: &str) {
@@ -1156,5 +1500,70 @@ fn schematic(ui: &mut egui::Ui, t: &Tokens, concept: &Value, width: f32) {
         let string = text.get("text").and_then(Value::as_str).unwrap_or_default();
         painter.with_clip_rect(r.intersect(rect)).text(anchor, align, string, egui::FontId::proportional(size), fill);
         painter.rect_stroke(r, 0.0, egui::Stroke::new(1.0, t.text_faint), egui::StrokeKind::Inside);
+    }
+}
+
+/// Converted server fonts kept across sessions through `Services::font_cache_load/store`: the
+/// desktop app keeps them under its config directory, bounded in size and oldest out first. The
+/// web has no such hooks and keeps only the session's in-memory [`FontCache`].
+///
+/// An entry is looked up by the server's base URL (its origin, and path prefix if any) and the
+/// font's file name, so a cached font is never downloaded again: the server serves fonts as
+/// `immutable`, and its contract gives no ETag or hash to ask with. The entry records both, the
+/// WOFF2's hash and the converted font's; one that doesn't match (another server or file, cut
+/// short, corrupt) is ignored, the font is fetched again and the entry rewritten.
+pub(crate) mod font_cache {
+    use crate::PhotocraftApp;
+
+    const MAGIC: &str = "photocraft-font-cache 1";
+    /// The largest converted font kept (and read back).
+    pub(crate) const MAX_FONT: usize = 32 << 20;
+
+    /// The entry's key: 64 hex digits, safe as a file name.
+    pub(crate) fn key(base: &str, file: &str) -> String {
+        blake3::hash(format!("{base}\n{file}").as_bytes()).to_hex().to_string()
+    }
+
+    /// An entry: five header lines (format, base URL, file, WOFF2 hash, font hash), then the font.
+    pub(crate) fn entry(base: &str, file: &str, woff2: &[u8], sfnt: &[u8]) -> Vec<u8> {
+        let mut out = format!("{MAGIC}\n{base}\n{file}\n{}\n{}\n", blake3::hash(woff2).to_hex(), blake3::hash(sfnt).to_hex()).into_bytes();
+        out.extend_from_slice(sfnt);
+        out
+    }
+
+    /// The converted font in `entry`, when it is a whole entry for `base` and `file`.
+    pub(crate) fn parse(entry: &[u8], base: &str, file: &str) -> Option<Vec<u8>> {
+        fn line(b: &[u8]) -> Option<(&str, &[u8])> {
+            let end = b.iter().take(4096).position(|c| *c == b'\n')?;
+            Some((std::str::from_utf8(b.get(..end)?).ok()?, b.get(end + 1..)?))
+        }
+        let (magic, rest) = line(entry)?;
+        let (b, rest) = line(rest)?;
+        let (f, rest) = line(rest)?;
+        let (woff2, rest) = line(rest)?;
+        let (hash, sfnt) = line(rest)?;
+        let ok = magic == MAGIC
+            && b == base
+            && f == file
+            && woff2.len() == 64
+            && !sfnt.is_empty()
+            && sfnt.len() <= MAX_FONT
+            && blake3::hash(sfnt).to_hex().as_str() == hash;
+        ok.then(|| sfnt.to_vec())
+    }
+
+    /// The font cached for `file` on the server at `base`, if any and intact.
+    pub(crate) fn load(app: &PhotocraftApp, base: &str, file: &str) -> Option<Vec<u8>> {
+        let load = app.services.font_cache_load.as_ref()?;
+        parse(&load(&key(base, file))?, base, file)
+    }
+
+    /// Keep a font converted from `woff2` (best effort).
+    pub(crate) fn store(app: &PhotocraftApp, base: &str, file: &str, woff2: &[u8], sfnt: &[u8]) {
+        if let Some(store) = app.services.font_cache_store.as_ref()
+            && sfnt.len() <= MAX_FONT
+        {
+            store(&key(base, file), &entry(base, file, woff2, sfnt));
+        }
     }
 }
