@@ -14,12 +14,13 @@ use wasm_bindgen::JsCast as _;
 
 type Inbox = Arc<Mutex<Vec<(String, Vec<u8>)>>>;
 
-/// Everything File › Open reads: PhotoCraft, Photoshop and Affinity documents, flat images, and
+/// Everything File › Open reads: PhotoCraft, Photoshop, OpenRaster and Affinity documents, flat images, and
 /// Photoshop brushes (.abr), gradients (.grd) and swatches (.aco, .ase), which go to the preset libraries.
 const OPEN_EXTS: &[&str] = &[
     "frameforge",
     "pcraft",
     "pdn",
+    "ora",
     "psd",
     "psb",
     "psdt",
@@ -65,6 +66,7 @@ const OPEN_EXTS: &[&str] = &[
     "afphoto",
     "afpub",
 ];
+const SVG_EXTS: &[&str] = &["svg", "svgz"];
 const CANVAS_ID: &str = "photocraft_canvas";
 
 /// Fonts the host serves next to the page (`photocraft_ui_egui::served_fonts`): craft-fonts' manifest
@@ -379,7 +381,9 @@ impl eframe::App for WebShell {
 fn services(inbox: Inbox) -> Services {
     Services {
         screen_pick: screen_color_service(),
-        import: Some(Box::new(|name: &str, bytes: &[u8]| photocraft_io::import(name, bytes).map(|r| (r.document, r.warnings)).map_err(|e| e.to_string()))),
+        import: Some(Box::new(|name: &str, bytes: &[u8], max_svg_group_depth: usize| {
+            photocraft_io::import_with_svg_group_depth(name, bytes, max_svg_group_depth).map(|r| (r.document, r.warnings)).map_err(|e| e.to_string())
+        })),
         export: Some(Box::new(|doc: &Document, path: &str, settings: &photocraft_ui_egui::ExportSettings| {
             let mut opts = photocraft_io::ExportOptions::default();
             if let Some(q) = settings.jpeg_quality {
@@ -399,7 +403,7 @@ fn services(inbox: Inbox) -> Services {
                 let dialog = if let Some(exts) = extensions {
                     rfd::AsyncFileDialog::new().add_filter("Supported Files", &exts)
                 } else {
-                    rfd::AsyncFileDialog::new().add_filter("All Formats", OPEN_EXTS)
+                    rfd::AsyncFileDialog::new().add_filter("All Formats", OPEN_EXTS).add_filter("SVG", SVG_EXTS)
                 };
                 let picked = dialog.pick_file().await;
                 let answer = match picked {
@@ -470,6 +474,7 @@ fn mime_for(name: &str) -> &'static str {
         Some("webp") => "image/webp",
         Some("gif") => "image/gif",
         Some("psd" | "psb") => "image/vnd.adobe.photoshop",
+        Some("ora") => "image/openraster",
         _ => "application/octet-stream",
     }
 }
