@@ -152,8 +152,11 @@ jobs:
     # on the pull request, so this job is the one to mark as required: it fails whenever the review
     # did not publish and says so on the pull request instead of leaving silence.
     needs: [plan, discover, aggregate]
+    # !cancelled() instead of always(): a run cancelled because a newer push superseded it should
+    # not post a notice on a stale head. Probed 2026-10-10: a job that hits timeout-minutes ends with
+    # result 'cancelled' but leaves cancelled() false here, so a hung shard still reaches this job.
     if: >-
-      always() &&
+      !cancelled() &&
       needs.plan.result != 'skipped' &&
       (needs.plan.result != 'success' || needs.plan.outputs.should-run == 'true')
     runs-on: [self-hosted, prism-review]
@@ -183,7 +186,7 @@ jobs:
 
           See the [workflow run]($RUN_URL) for the failing step. Push a new commit or re-run **all** jobs to review again."
           existing=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --paginate \
-            --jq "map(select(.body | startswith(\"$marker\"))) | .[0].id // empty")
+            --jq "map(select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\")))) | .[0].id // empty")
           if [ -n "$existing" ]; then
             gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" -f body="$body" >/dev/null
           else
@@ -200,6 +203,6 @@ jobs:
         run: |
           marker='<!-- prism-review:incomplete -->'
           for id in $(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --paginate \
-            --jq "map(select(.body | startswith(\"$marker\"))) | .[].id"); do
+            --jq "map(select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\")))) | .[].id"); do
             gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/comments/$id" >/dev/null
           done
