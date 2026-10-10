@@ -2,3 +2,4 @@
 self-hosted-runner:
   labels:
     - macos-release  # org larger runner (M2 Pro), used by release.yml
+    - prism-review   # self-hosted Prism runner on openclaw-server, used by prism-review.yml
