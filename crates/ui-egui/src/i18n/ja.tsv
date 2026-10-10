@@ -2212,3 +2212,73 @@ fontWeight	Italic	斜体
 	Pattern Stamp Tool	パターンスタンプツール
 	Pattern Stamp	パターンスタンプ
 	Impressionist	印象派
+
+# Window › FrameForge (frameforge_ui.rs, frameforge_images.rs)
+	A FrameForge request is already running.	FrameForge のリクエストはすでに実行中です。
+	Access token	アクセストークン
+	Add current document	現在のドキュメントを追加
+	Add image…	画像を追加…
+	Attach at most 4 images.	画像は 4 枚まで添付できます。
+	Brand notes	ブランドメモ
+	Brief	ブリーフ
+	Brief fields must be text.	ブリーフの項目はテキストにしてください。
+	Cancel FrameForge Request	FrameForge のリクエストをキャンセル
+	Cancelled.	キャンセルしました。
+	Channel URL	チャンネル URL
+	Channel name	チャンネル名
+	Choose a concept to create.	作成するコンセプトを選んでください。
+	Concepts	コンセプト
+	Connect	接続
+	Connect to FrameForge	FrameForge に接続
+	Connected (api {api})	接続しました (api {api})
+	Connecting…	接続中…
+	Couldn't reach the FrameForge server: {error}	FrameForge サーバーに接続できませんでした: {error}
+	Create from FrameForge Concept	FrameForge のコンセプトから作成
+	Created {name}	{name} を作成しました
+	Creating {name}…	{name} を作成中…
+	Develop FrameForge Concepts	FrameForge のコンセプトを作成
+	Develop concepts	コンセプトを作成
+	Develop concepts first.	先にコンセプトを作成してください。
+	Developing concepts…	コンセプトを作成中…
+	Enter a channel name.	チャンネル名を入力してください。
+	Enter a video title.	動画のタイトルを入力してください。
+	Enter the FrameForge server URL (http:// or https://).	FrameForge サーバーの URL を入力してください (http:// または https://)。
+	Font {family} {weight}: {error}	フォント {family} {weight}: {error}
+	FrameForge	FrameForge
+	FrameForge needs a network-enabled build.	FrameForge にはネットワーク対応のビルドが必要です。
+	Images	画像
+	Images must be data URLs, base64 file bytes or "document".	画像は data URL、base64 のファイルバイト、または "document" にしてください。
+	Open a document first.	先にドキュメントを開いてください。
+	Remove image	画像を削除
+	Server	サーバー
+	Server URL	サーバー URL
+	Server fonts are unavailable: {error}	サーバーのフォントを使用できません: {error}
+	The FrameForge server answered HTTP {status}.	FrameForge サーバーの応答: HTTP {status}。
+	The FrameForge server sent an invalid concept.	FrameForge サーバーから無効なコンセプトが届きました。
+	The FrameForge server sent {count} concepts; PhotoCraft expects 2 or 3.	FrameForge サーバーから届いたコンセプトは {count} 件です。PhotoCraft は 2 件か 3 件を想定しています。
+	The FrameForge server's answer is larger than {max} MiB.	FrameForge サーバーの応答が {max} MiB を超えています。
+	The FrameForge server's answer isn't valid JSON.	FrameForge サーバーの応答は有効な JSON ではありません。
+	The brief is larger than the server accepts (10 MiB).	ブリーフがサーバーの上限 (10 MiB) を超えています。
+	The images are larger than the server accepts (64 MiB in all).	画像がサーバーの上限 (合計 64 MiB) を超えています。
+	The server didn't answer.	サーバーから応答がありませんでした。
+	The server's answer isn't a FrameForge project: {error}	サーバーの応答は FrameForge プロジェクトではありません: {error}
+	The token stays in memory and is never saved.	トークンはメモリ上にだけ保持され、保存されません。
+	There is no concept {n}.	コンセプト {n} はありません。
+	This FrameForge server speaks API {api}; PhotoCraft speaks API 1.	この FrameForge サーバーは API {api} を使用しています。PhotoCraft は API 1 を使用します。
+	This build can't export documents.	このビルドではドキュメントを書き出せません。
+	Try again in {seconds} s.	{seconds} 秒後にもう一度お試しください。
+	Video summary	動画の概要
+	Video title	動画のタイトル
+	Warnings	警告
+	generated	生成
+	upload {n}	アップロード {n}
+	{count} concepts are ready.	{count} 件のコンセプトができました。
+	{field} is too long: at most {max} characters.	{field}が長すぎます: {max} 文字までです。
+	{name} can't be used: {error}	{name} は使用できません: {error}
+	{name} doesn't fit the server's 2 MiB limit, even at 1600 pixels.	{name} は 1600 ピクセルでもサーバーの 2 MiB 制限に収まりません。
+	{name} is larger than {max} MiB.	{name} は {max} MiB を超えています。
+	{name} is too large to send (at most 12 MiB and 8192 pixels).	{name} は大きすぎて送信できません (最大 12 MiB、8192 ピクセル)。
+	{seconds} s	{seconds} 秒
+	Enter the access token for {origin}.	{origin} のアクセストークンを入力してください。
+	{name} isn't a PNG, JPEG or WebP image.	{name} は PNG、JPEG、WebP 画像ではありません。
+	Use https:// for servers other than localhost.	localhost 以外のサーバーには https:// を使ってください。

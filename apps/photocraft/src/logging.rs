@@ -33,6 +33,9 @@ pub const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
 pub const MAX_PENDING: usize = 512;
 /// The built-in filter when `RUST_LOG` is unset or empty.
 pub const DEFAULT_FILTER: &str = "warn,photocraft*=info";
+/// The HTTP client's trace records carry raw requests (Window › FrameForge's access token), so
+/// its targets (`ureq`, `ureq_proto`) never log above `debug`, whatever `RUST_LOG` says.
+const CLAMP: (&str, LevelFilter) = ("ureq*", LevelFilter::Debug);
 
 /// Per-target level filter parsed from env_logger-style directives.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -66,7 +69,9 @@ impl Filter {
 
     /// The level that applies to `target` (the most specific matching directive wins).
     pub fn level_for(&self, target: &str) -> LevelFilter {
-        self.directives.iter().filter(|(name, _)| matches(name, target)).max_by_key(|(name, _)| name.len()).map_or(self.default, |(_, level)| *level)
+        let level =
+            self.directives.iter().filter(|(name, _)| matches(name, target)).max_by_key(|(name, _)| name.len()).map_or(self.default, |(_, level)| *level);
+        if matches(CLAMP.0, target) { level.min(CLAMP.1) } else { level }
     }
 
     /// The most verbose level any target can reach (for `log::set_max_level`).
@@ -290,6 +295,24 @@ mod tests {
         // A bare target name sets that target to the most verbose level, as env_logger does.
         assert_eq!(Filter::parse("naga").level_for("naga::front"), LevelFilter::Trace);
         assert_eq!(Filter::parse("naga").level_for("eframe"), LevelFilter::Error);
+    }
+
+    #[test]
+    fn http_client_traces_never_reach_the_log() {
+        for spec in ["trace", "ureq=trace", "ureq_proto=trace,trace", "ureq*=trace", "ureq::run=trace", "debug,ureq_proto::client=trace"] {
+            let f = Filter::parse(spec);
+            for target in ["ureq", "ureq::run", "ureq_proto::client"] {
+                assert!(f.level_for(target) <= LevelFilter::Debug, "{spec}: {target}");
+            }
+        }
+        // Where a directive reaches them they log at debug, not trace.
+        assert_eq!(Filter::parse("trace").level_for("ureq_proto::client"), LevelFilter::Debug);
+        assert_eq!(Filter::parse("ureq=trace").level_for("ureq::run"), LevelFilter::Debug);
+        assert_eq!(Filter::parse("ureq*=trace").level_for("ureq_proto::client"), LevelFilter::Debug);
+        // `ureq` names that crate only (`a` doesn't match `ab`): ureq_proto keeps the default.
+        assert_eq!(Filter::parse("ureq=trace").level_for("ureq_proto::client"), LevelFilter::Error);
+        assert_eq!(Filter::parse(DEFAULT_FILTER).level_for("ureq::run"), LevelFilter::Warn);
+        assert_eq!(Filter::parse("trace").level_for("photocraft"), LevelFilter::Trace);
     }
 
     #[test]

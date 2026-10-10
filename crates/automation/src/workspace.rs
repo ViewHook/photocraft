@@ -198,6 +198,11 @@ pub fn authorize_desktop_engine_command(id: &str, params: &Value) -> Result<(), 
     if id.starts_with("image.mode.") {
         return Err(command_error(id));
     }
+    // Window › FrameForge requests are network egress with the user's access token, and Develop
+    // can post the active document: only the user's own clicks start them.
+    if matches!(id, "frameforge.connect" | "frameforge.develop" | "frameforge.create") {
+        return Err(AutomationError::BadRequest(format!("automation command `{id}` sends network requests with the user's access token and is disabled")));
+    }
     Ok(())
 }
 
@@ -455,6 +460,13 @@ mod tests {
         }
         assert!(authorize_engine_command("image.mode.cmyk", &serde_json::json!({})).is_ok());
         assert!(authorize_desktop_engine_command("image.mode.cmyk", &serde_json::json!({})).is_err());
+        // FrameForge network requests are the user's; showing the panel or cancelling is not egress.
+        for id in ["frameforge.connect", "frameforge.develop", "frameforge.create"] {
+            assert!(authorize_desktop_engine_command(id, &serde_json::json!({"url": "http://example.test"})).is_err(), "{id}");
+        }
+        for id in ["frameforge.cancel", "window.panel.frameforge"] {
+            assert!(authorize_desktop_engine_command(id, &serde_json::json!({})).is_ok(), "{id}");
+        }
         assert!(authorize_engine_command("image.mode.rgb", &serde_json::json!({"profile": "/outside/profile.icc"})).is_err());
         assert!(authorize_engine_command("image.mode.rgb", &serde_json::json!({"profile": "srgb"})).is_ok());
         assert!(authorize_engine_command("filter.distort.displace", &serde_json::json!({"mapPath": "outside.png"})).is_err());

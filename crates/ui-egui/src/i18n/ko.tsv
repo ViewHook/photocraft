@@ -2808,3 +2808,73 @@ fontWeight	Italic	기울임
 	Pattern Stamp Tool	패턴 스탬프 도구
 	Pattern Stamp	패턴 스탬프
 	Impressionist	인상파
+
+# Window › FrameForge (frameforge_ui.rs, frameforge_images.rs)
+	A FrameForge request is already running.	FrameForge 요청이 이미 실행 중입니다.
+	Access token	액세스 토큰
+	Add current document	현재 문서 추가
+	Add image…	이미지 추가…
+	Attach at most 4 images.	이미지는 최대 4개까지 첨부할 수 있습니다.
+	Brand notes	브랜드 메모
+	Brief	브리프
+	Brief fields must be text.	브리프 항목은 텍스트여야 합니다.
+	Cancel FrameForge Request	FrameForge 요청 취소
+	Cancelled.	취소했습니다.
+	Channel URL	채널 URL
+	Channel name	채널 이름
+	Choose a concept to create.	만들 콘셉트를 선택하세요.
+	Concepts	콘셉트
+	Connect	연결
+	Connect to FrameForge	FrameForge에 연결
+	Connected (api {api})	연결됨 (api {api})
+	Connecting…	연결 중…
+	Couldn't reach the FrameForge server: {error}	FrameForge 서버에 연결할 수 없습니다: {error}
+	Create from FrameForge Concept	FrameForge 콘셉트로 만들기
+	Created {name}	{name} 만들기 완료
+	Creating {name}…	{name} 만드는 중…
+	Develop FrameForge Concepts	FrameForge 콘셉트 구상
+	Develop concepts	콘셉트 구상
+	Develop concepts first.	먼저 콘셉트를 구상하세요.
+	Developing concepts…	콘셉트 구상 중…
+	Enter a channel name.	채널 이름을 입력하세요.
+	Enter a video title.	동영상 제목을 입력하세요.
+	Enter the FrameForge server URL (http:// or https://).	FrameForge 서버 URL을 입력하세요(http:// 또는 https://).
+	Font {family} {weight}: {error}	글꼴 {family} {weight}: {error}
+	FrameForge	FrameForge
+	FrameForge needs a network-enabled build.	FrameForge를 사용하려면 네트워크를 지원하는 빌드가 필요합니다.
+	Images	이미지
+	Images must be data URLs, base64 file bytes or "document".	이미지는 data URL, base64 파일 바이트 또는 "document"여야 합니다.
+	Open a document first.	먼저 문서를 여세요.
+	Remove image	이미지 제거
+	Server	서버
+	Server URL	서버 URL
+	Server fonts are unavailable: {error}	서버 글꼴을 사용할 수 없습니다: {error}
+	The FrameForge server answered HTTP {status}.	FrameForge 서버가 HTTP {status}(으)로 응답했습니다.
+	The FrameForge server sent an invalid concept.	FrameForge 서버가 잘못된 콘셉트를 보냈습니다.
+	The FrameForge server sent {count} concepts; PhotoCraft expects 2 or 3.	FrameForge 서버가 보낸 콘셉트는 {count}개입니다. PhotoCraft는 2개 또는 3개를 예상합니다.
+	The FrameForge server's answer is larger than {max} MiB.	FrameForge 서버의 응답이 {max} MiB보다 큽니다.
+	The FrameForge server's answer isn't valid JSON.	FrameForge 서버의 응답이 올바른 JSON이 아닙니다.
+	The brief is larger than the server accepts (10 MiB).	브리프가 서버 허용 크기(10 MiB)를 넘습니다.
+	The images are larger than the server accepts (64 MiB in all).	이미지가 서버 허용 크기(합계 64 MiB)를 넘습니다.
+	The server didn't answer.	서버가 응답하지 않았습니다.
+	The server's answer isn't a FrameForge project: {error}	서버 응답이 FrameForge 프로젝트가 아닙니다: {error}
+	The token stays in memory and is never saved.	토큰은 메모리에만 있고 저장되지 않습니다.
+	There is no concept {n}.	콘셉트 {n}이(가) 없습니다.
+	This FrameForge server speaks API {api}; PhotoCraft speaks API 1.	이 FrameForge 서버는 API {api}를 사용하고 PhotoCraft는 API 1을 사용합니다.
+	This build can't export documents.	이 빌드에서는 문서를 내보낼 수 없습니다.
+	Try again in {seconds} s.	{seconds}초 후에 다시 시도하세요.
+	Video summary	동영상 요약
+	Video title	동영상 제목
+	Warnings	경고
+	generated	생성됨
+	upload {n}	업로드 {n}
+	{count} concepts are ready.	콘셉트 {count}개가 준비되었습니다.
+	{field} is too long: at most {max} characters.	{field}이(가) 너무 깁니다: 최대 {max}자입니다.
+	{name} can't be used: {error}	{name}을(를) 사용할 수 없습니다: {error}
+	{name} doesn't fit the server's 2 MiB limit, even at 1600 pixels.	{name}은(는) 1600픽셀로 줄여도 서버의 2 MiB 제한을 넘습니다.
+	{name} is larger than {max} MiB.	{name}이(가) {max} MiB보다 큽니다.
+	{name} is too large to send (at most 12 MiB and 8192 pixels).	{name}이(가) 너무 커서 보낼 수 없습니다(최대 12 MiB, 8192픽셀).
+	{seconds} s	{seconds}초
+	Enter the access token for {origin}.	{origin}의 액세스 토큰을 입력하세요.
+	{name} isn't a PNG, JPEG or WebP image.	{name}은(는) PNG, JPEG 또는 WebP 이미지가 아닙니다.
+	Use https:// for servers other than localhost.	localhost가 아닌 서버에는 https://를 사용하세요.

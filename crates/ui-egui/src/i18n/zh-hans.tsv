@@ -2237,3 +2237,73 @@ fontWeight	Italic	斜体
 	Pattern Stamp Tool	图案图章工具
 	Pattern Stamp	图案图章
 	Impressionist	印象派
+
+# Window › FrameForge (frameforge_ui.rs, frameforge_images.rs)
+	A FrameForge request is already running.	已有一个 FrameForge 请求正在进行。
+	Access token	访问令牌
+	Add current document	添加当前文档
+	Add image…	添加图像…
+	Attach at most 4 images.	最多附加 4 张图像。
+	Brand notes	品牌说明
+	Brief	简报
+	Brief fields must be text.	简报字段必须是文本。
+	Cancel FrameForge Request	取消 FrameForge 请求
+	Cancelled.	已取消。
+	Channel URL	频道 URL
+	Channel name	频道名称
+	Choose a concept to create.	请选择要创建的方案。
+	Concepts	方案
+	Connect	连接
+	Connect to FrameForge	连接到 FrameForge
+	Connected (api {api})	已连接（api {api}）
+	Connecting…	正在连接…
+	Couldn't reach the FrameForge server: {error}	无法连接 FrameForge 服务器：{error}
+	Create from FrameForge Concept	从 FrameForge 方案创建
+	Created {name}	已创建 {name}
+	Creating {name}…	正在创建 {name}…
+	Develop FrameForge Concepts	构思 FrameForge 方案
+	Develop concepts	构思方案
+	Develop concepts first.	请先构思方案。
+	Developing concepts…	正在构思方案…
+	Enter a channel name.	请输入频道名称。
+	Enter a video title.	请输入视频标题。
+	Enter the FrameForge server URL (http:// or https://).	请输入 FrameForge 服务器 URL（http:// 或 https://）。
+	Font {family} {weight}: {error}	字体 {family} {weight}：{error}
+	FrameForge	FrameForge
+	FrameForge needs a network-enabled build.	FrameForge 需要支持网络的版本。
+	Images	图像
+	Images must be data URLs, base64 file bytes or "document".	图像必须是 data URL、base64 文件字节或 "document"。
+	Open a document first.	请先打开一个文档。
+	Remove image	移除图像
+	Server	服务器
+	Server URL	服务器 URL
+	Server fonts are unavailable: {error}	服务器字体不可用：{error}
+	The FrameForge server answered HTTP {status}.	FrameForge 服务器返回 HTTP {status}。
+	The FrameForge server sent an invalid concept.	FrameForge 服务器发送了无效的方案。
+	The FrameForge server sent {count} concepts; PhotoCraft expects 2 or 3.	FrameForge 服务器发送了 {count} 个方案；PhotoCraft 需要 2 或 3 个。
+	The FrameForge server's answer is larger than {max} MiB.	FrameForge 服务器的响应超过 {max} MiB。
+	The FrameForge server's answer isn't valid JSON.	FrameForge 服务器的响应不是有效的 JSON。
+	The brief is larger than the server accepts (10 MiB).	简报超出服务器可接受的大小（10 MiB）。
+	The images are larger than the server accepts (64 MiB in all).	图像超出服务器可接受的大小（共 64 MiB）。
+	The server didn't answer.	服务器没有响应。
+	The server's answer isn't a FrameForge project: {error}	服务器的响应不是 FrameForge 项目：{error}
+	The token stays in memory and is never saved.	令牌只保存在内存中，从不写入磁盘。
+	There is no concept {n}.	没有方案 {n}。
+	This FrameForge server speaks API {api}; PhotoCraft speaks API 1.	此 FrameForge 服务器使用 API {api}；PhotoCraft 使用 API 1。
+	This build can't export documents.	此版本无法导出文档。
+	Try again in {seconds} s.	请在 {seconds} 秒后重试。
+	Video summary	视频摘要
+	Video title	视频标题
+	Warnings	警告
+	generated	生成
+	upload {n}	上传 {n}
+	{count} concepts are ready.	{count} 个方案已就绪。
+	{field} is too long: at most {max} characters.	{field}过长：最多 {max} 个字符。
+	{name} can't be used: {error}	无法使用 {name}：{error}
+	{name} doesn't fit the server's 2 MiB limit, even at 1600 pixels.	{name} 即使缩小到 1600 像素也超出服务器的 2 MiB 限制。
+	{name} is larger than {max} MiB.	{name} 超过 {max} MiB。
+	{name} is too large to send (at most 12 MiB and 8192 pixels).	{name} 太大，无法发送（最多 12 MiB 和 8192 像素）。
+	{seconds} s	{seconds} 秒
+	Enter the access token for {origin}.	请输入 {origin} 的访问令牌。
+	{name} isn't a PNG, JPEG or WebP image.	{name} 不是 PNG、JPEG 或 WebP 图像。
+	Use https:// for servers other than localhost.	localhost 以外的服务器请使用 https://。

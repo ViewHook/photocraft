@@ -3257,3 +3257,73 @@ cameraRaw	Roughness	Chropowatość
 # Pattern Stamp tool
 	Pattern Stamp Tool	Narzędzie Pieczątka wzoru
 	Impressionist	Impresjonistyczny
+
+# Window › FrameForge (frameforge_ui.rs, frameforge_images.rs)
+	A FrameForge request is already running.	Żądanie FrameForge już trwa.
+	Access token	Token dostępu
+	Add current document	Dodaj bieżący dokument
+	Add image…	Dodaj obraz…
+	Attach at most 4 images.	Dołącz najwyżej 4 obrazy.
+	Brand notes	Uwagi o marce
+	Brief	Brief
+	Brief fields must be text.	Pola briefu muszą być tekstem.
+	Cancel FrameForge Request	Anuluj żądanie FrameForge
+	Cancelled.	Anulowano.
+	Channel URL	Adres URL kanału
+	Channel name	Nazwa kanału
+	Choose a concept to create.	Wybierz koncepcję do utworzenia.
+	Concepts	Koncepcje
+	Connect	Połącz
+	Connect to FrameForge	Połącz z FrameForge
+	Connected (api {api})	Połączono (api {api})
+	Connecting…	Łączenie…
+	Couldn't reach the FrameForge server: {error}	Nie można połączyć się z serwerem FrameForge: {error}
+	Create from FrameForge Concept	Utwórz z koncepcji FrameForge
+	Created {name}	Utworzono {name}
+	Creating {name}…	Tworzenie {name}…
+	Develop FrameForge Concepts	Opracuj koncepcje FrameForge
+	Develop concepts	Opracuj koncepcje
+	Develop concepts first.	Najpierw opracuj koncepcje.
+	Developing concepts…	Opracowywanie koncepcji…
+	Enter a channel name.	Wpisz nazwę kanału.
+	Enter a video title.	Wpisz tytuł filmu.
+	Enter the FrameForge server URL (http:// or https://).	Wpisz adres URL serwera FrameForge (http:// lub https://).
+	Font {family} {weight}: {error}	Czcionka {family} {weight}: {error}
+	FrameForge	FrameForge
+	FrameForge needs a network-enabled build.	FrameForge wymaga wersji z dostępem do sieci.
+	Images	Obrazy
+	Images must be data URLs, base64 file bytes or "document".	Obrazy muszą być adresami data URL, bajtami pliku w base64 lub "document".
+	Open a document first.	Najpierw otwórz dokument.
+	Remove image	Usuń obraz
+	Server	Serwer
+	Server URL	Adres URL serwera
+	Server fonts are unavailable: {error}	Czcionki serwera są niedostępne: {error}
+	The FrameForge server answered HTTP {status}.	Serwer FrameForge odpowiedział HTTP {status}.
+	The FrameForge server sent an invalid concept.	Serwer FrameForge wysłał nieprawidłową koncepcję.
+	The FrameForge server sent {count} concepts; PhotoCraft expects 2 or 3.	Liczba koncepcji od serwera FrameForge: {count}; PhotoCraft oczekuje 2 lub 3.
+	The FrameForge server's answer is larger than {max} MiB.	Odpowiedź serwera FrameForge przekracza {max} MiB.
+	The FrameForge server's answer isn't valid JSON.	Odpowiedź serwera FrameForge nie jest poprawnym JSON.
+	The brief is larger than the server accepts (10 MiB).	Brief przekracza limit serwera (10 MiB).
+	The images are larger than the server accepts (64 MiB in all).	Obrazy przekraczają limit serwera (łącznie 64 MiB).
+	The server didn't answer.	Serwer nie odpowiedział.
+	The server's answer isn't a FrameForge project: {error}	Odpowiedź serwera nie jest projektem FrameForge: {error}
+	The token stays in memory and is never saved.	Token pozostaje w pamięci i nigdy nie jest zapisywany.
+	There is no concept {n}.	Nie ma koncepcji {n}.
+	This FrameForge server speaks API {api}; PhotoCraft speaks API 1.	Ten serwer FrameForge używa API {api}; PhotoCraft używa API 1.
+	This build can't export documents.	Ta wersja nie może eksportować dokumentów.
+	Try again in {seconds} s.	Spróbuj ponownie za {seconds} s.
+	Video summary	Streszczenie filmu
+	Video title	Tytuł filmu
+	Warnings	Ostrzeżenia
+	generated	wygenerowany
+	upload {n}	przesłany {n}
+	{count} concepts are ready.	Gotowe koncepcje: {count}.
+	{field} is too long: at most {max} characters.	{field}: za długie, najwyżej {max} znaków.
+	{name} can't be used: {error}	Nie można użyć {name}: {error}
+	{name} doesn't fit the server's 2 MiB limit, even at 1600 pixels.	{name} nie mieści się w limicie 2 MiB serwera nawet przy 1600 pikselach.
+	{name} is larger than {max} MiB.	{name} przekracza {max} MiB.
+	{name} is too large to send (at most 12 MiB and 8192 pixels).	{name} jest za duży do wysłania (najwyżej 12 MiB i 8192 piksele).
+	{seconds} s	{seconds} s
+	Enter the access token for {origin}.	Wpisz token dostępu dla {origin}.
+	{name} isn't a PNG, JPEG or WebP image.	{name} nie jest obrazem PNG, JPEG ani WebP.
+	Use https:// for servers other than localhost.	Dla serwerów innych niż localhost użyj https://.

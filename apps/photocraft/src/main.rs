@@ -28,6 +28,7 @@ mod control_server;
 mod crash_guard;
 mod cursor;
 mod gpu_startup;
+mod http;
 #[cfg(target_os = "macos")]
 mod mac_menu;
 #[cfg(target_os = "macos")]
@@ -330,6 +331,10 @@ fn main() -> eframe::Result {
                 }
             }
             let mut app = PhotocraftApp::new(Session::new(), services);
+            // Window › FrameForge: the access token comes from the environment, kept in memory only.
+            if let Ok(token) = std::env::var("FRAMEFORGE_ACCESS_TOKEN") {
+                photocraft_ui_egui::frameforge_ui::set_access_token(&mut app, token);
+            }
             app.integrated_titlebar = cfg!(target_os = "macos");
             app.custom_titlebar = custom_titlebar;
             // Only the title bar's free gap drags the window, never the menus (mac_window.rs).
