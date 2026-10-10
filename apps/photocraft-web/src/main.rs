@@ -18,6 +18,12 @@
 
 #[cfg(any(target_arch = "wasm32", test))]
 mod http;
+#[cfg(any(target_arch = "wasm32", test))]
+mod preset_bridge;
+
+#[cfg(target_arch = "wasm32")]
+mod indexed_presets;
+
 #[cfg(target_arch = "wasm32")]
 mod web;
 
