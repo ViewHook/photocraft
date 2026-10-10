@@ -30,19 +30,20 @@ log = { workspace = true }
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # `wgpu` pulls egui-wgpu's defaults: WebGPU plus the WebGL2 fallback.
 eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit"] }
-# HTTP for Window › FrameForge (`http.rs`, the browser's fetch); `streaming` caps the response size.
-ehttp = { version = "0.7", default-features = false, features = ["streaming"] }
 rfd = { workspace = true }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
-web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "HtmlAnchorElement", "Blob", "BlobPropertyBag", "Url", "Location", "CssStyleDeclaration", "Storage", "Event", "EventTarget", "MouseEvent", "PointerEvent", "BeforeUnloadEvent", "AbortController", "AbortSignal", "DomException", "Response", "IdbFactory", "IdbOpenDbRequest", "IdbDatabase", "IdbRequest", "IdbTransaction", "IdbTransactionMode", "IdbObjectStore", "IdbCursor", "IdbCursorWithValue", "RequestInit", "Navigator"] }
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "HtmlAnchorElement", "Blob", "BlobPropertyBag", "Url", "Location", "CssStyleDeclaration", "Storage", "Event", "EventTarget", "MouseEvent", "PointerEvent", "BeforeUnloadEvent", "AbortController", "AbortSignal", "DomException", "Response", "IdbFactory", "IdbOpenDbRequest", "IdbDatabase", "IdbRequest", "IdbTransaction", "IdbTransactionMode", "IdbObjectStore", "IdbCursor", "IdbCursorWithValue", "RequestInit", "Navigator",
+  # Window › FrameForge (`fetch.rs`): fetch with an AbortController, the body read as a stream.
+  "Headers", "ReadableStream", "ReadableStreamDefaultReader", "RequestMode"] }
 
 [dev-dependencies]
 serde_json = { workspace = true }
 photocraft-paint = { workspace = true }
 photocraft-psd = { workspace = true }
 
-# `http.rs` tests run natively against a loopback server.
+# `http.rs` (the desktop's FrameForge adapter, kept identical to apps/photocraft/src/http.rs) runs
+# its tests natively here against a loopback server.
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-ehttp = { version = "0.7", default-features = false, features = ["streaming"] }
+ureq = "3.4"

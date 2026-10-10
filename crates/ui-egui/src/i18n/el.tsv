@@ -3584,3 +3584,7 @@ fontWeight	Thin	Πολύ λεπτά
 	Enter the access token for {origin}.	Εισαγάγετε το διακριτικό πρόσβασης για το {origin}.
 	{name} isn't a PNG, JPEG or WebP image.	Το {name} δεν είναι εικόνα PNG, JPEG ή WebP.
 	Use https:// for servers other than localhost.	Χρησιμοποιήστε https:// για διακομιστές εκτός του localhost.
+	Decoding…	Αποκωδικοποίηση…
+	The FrameForge server didn't answer in time.	Ο διακομιστής FrameForge δεν απάντησε εγκαίρως.
+	Waiting for the images to decode…	Αναμονή για την αποκωδικοποίηση των εικόνων…
+	the image decoder failed	ο αποκωδικοποιητής εικόνων απέτυχε

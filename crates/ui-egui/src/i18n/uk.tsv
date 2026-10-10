@@ -3583,3 +3583,7 @@ cameraRaw	Masking	Маскування
 	Enter the access token for {origin}.	Введіть токен доступу для {origin}.
 	{name} isn't a PNG, JPEG or WebP image.	{name} не є зображенням PNG, JPEG або WebP.
 	Use https:// for servers other than localhost.	Для серверів, крім localhost, використовуйте https://.
+	Decoding…	Декодування…
+	The FrameForge server didn't answer in time.	Сервер FrameForge не відповів вчасно.
+	Waiting for the images to decode…	Очікування декодування зображень…
+	the image decoder failed	декодер зображень дав збій

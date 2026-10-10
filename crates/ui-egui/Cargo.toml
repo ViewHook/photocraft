@@ -37,6 +37,8 @@ log = { workspace = true }
 base64 = "0.22"
 # Inflating the translation catalogs, stored deflated (build.rs); already linked through photocraft-io.
 flate2 = { workspace = true }
+# Keys and checksums of the FrameForge font cache (already in the tree via photocraft-engine).
+blake3 = { version = "1.8", default-features = false, features = ["pure"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rayon = { workspace = true }
@@ -44,6 +46,8 @@ rayon = { workspace = true }
 sys-locale = "=0.3.2"
 
 [dev-dependencies]
+# Synthetic `.frameforge` archives and WOFF2 fonts for the Window › FrameForge tests.
+photocraft-frameforge = { workspace = true, features = ["testing"] }
 # Synthetic raw files for the open-time Camera Raw dialog tests.
 photocraft-raw = { workspace = true, features = ["testgen"] }
 egui_kittest = { workspace = true, features = ["wgpu", "snapshot", "eframe"] }

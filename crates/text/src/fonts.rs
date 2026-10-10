@@ -126,7 +126,15 @@ pub struct FontDb {
     fallbacks: Vec<String>,
     face_cache: HashMap<String, Vec<FaceInfo>>,
     face_aliases: HashMap<(String, usize), String>,
+    /// Font data already registered through [`Self::register_font_data`], by hash of its bytes:
+    /// registering the same bytes again (the FrameForge import passes the session's fonts on every
+    /// Create) returns the families without growing the collection. The blobs are the ones the
+    /// collection already holds. Bundled fonts aren't tracked (they're registered once, uncopied).
+    registered: HashMap<u64, Vec<Registered>>,
 }
+
+/// Font data in the collection and the family names it registered.
+type Registered = (Blob<u8>, Vec<String>);
 
 impl Default for FontDb {
     fn default() -> Self {
@@ -145,6 +153,7 @@ impl FontDb {
             fallbacks: Vec::new(),
             face_cache: HashMap::new(),
             face_aliases: HashMap::new(),
+            registered: HashMap::new(),
         };
         for (_, bytes) in BUNDLED {
             db.register_static_font(bytes.as_slice());
@@ -193,8 +202,22 @@ impl FontDb {
     }
 
     /// Registers font data (TTF/OTF, or every face of a TTC/OTC). Returns the family names added.
+    /// Idempotent per database: the same bytes registered again return the same families and add
+    /// no faces.
     pub fn register_font_data(&mut self, bytes: Vec<u8>) -> Vec<String> {
-        self.register_blob(Blob::new(Arc::new(bytes)))
+        let hash = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            bytes.hash(&mut h);
+            h.finish()
+        };
+        if let Some((_, names)) = self.registered.get(&hash).and_then(|v| v.iter().find(|(blob, _)| blob.data() == bytes.as_slice())) {
+            return names.clone();
+        }
+        let blob = Blob::new(Arc::new(bytes));
+        let names = self.register_blob(blob.clone());
+        self.registered.entry(hash).or_default().push((blob, names.clone()));
+        names
     }
 
     /// Registers embedded font data without copying it.
@@ -621,6 +644,31 @@ mod tests {
         assert!(super::inflate_font(b"").is_empty());
         let mut db = super::FontDb::new();
         assert!(db.register_font_data(super::inflate_font(b"\x00garbage")).is_empty());
+    }
+
+    /// The same font bytes registered twice (e.g. one FrameForge font on two Creates) add one set
+    /// of faces: the second call adds no family or face and reports the same families.
+    #[test]
+    fn registering_the_same_font_twice_adds_nothing() {
+        let mut db = super::FontDb::new();
+        let families = db.families().len();
+        let faces = db.faces(super::MONO_FAMILY).len();
+        // A copy that isn't byte-identical to the bundled font (registered separately, untracked).
+        let mut font = super::JETBRAINS_MONO_REGULAR.to_vec();
+        font.push(0);
+        let first = db.register_font_data(font.clone());
+        assert_eq!(first, vec![super::MONO_FAMILY.to_string()]);
+        assert_eq!(db.faces(super::MONO_FAMILY).len(), faces + 1);
+        let second = db.register_font_data(font);
+        assert_eq!(first, second);
+        assert_eq!(db.families().len(), families);
+        assert_eq!(db.faces(super::MONO_FAMILY).len(), faces + 1);
+        // Different bytes still register.
+        let inter = db.faces(super::DEFAULT_FAMILY).len();
+        let mut other = super::INTER_REGULAR.to_vec();
+        other.push(0);
+        assert_eq!(db.register_font_data(other), vec![super::DEFAULT_FAMILY.to_string()]);
+        assert_eq!(db.faces(super::DEFAULT_FAMILY).len(), inter + 1);
     }
 
     #[test]

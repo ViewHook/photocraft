@@ -289,6 +289,10 @@ pub struct HttpRequest {
     /// The longest response body accepted: the service stops reading and answers `Err` beyond it
     /// (or when `Content-Length` announces more), so a server can't make the app allocate more.
     pub max_response_bytes: usize,
+    /// The whole exchange's deadline at the transport (connect, send, headers and body): past it
+    /// the service hangs up and answers `Err`. `None` is the service's own default. The panel
+    /// keeps its own deadline as well (`frameforge_ui`); this one frees the connection.
+    pub timeout: Option<std::time::Duration>,
 }
 
 impl std::fmt::Debug for HttpRequest {
@@ -300,6 +304,7 @@ impl std::fmt::Debug for HttpRequest {
             .field("headers", &names)
             .field("body", &self.body.len())
             .field("max_response_bytes", &self.max_response_bytes)
+            .field("timeout", &self.timeout)
             .finish()
     }
 }
@@ -328,10 +333,49 @@ impl std::fmt::Debug for HttpResponse {
 }
 
 /// Receives an [`HttpFn`] request's response, or why there is none (no connection, timeout,
-/// refused by CORS). Called once, from any thread.
+/// refused by CORS, aborted). Called once, from any thread.
 pub type HttpDone = Box<dyn FnOnce(Result<HttpResponse, String>) + Send>;
-/// Start an HTTP request and return at once; `done` gets the outcome later (see [`HttpDone`]).
-pub type HttpFn = Box<dyn Fn(HttpRequest, HttpDone)>;
+/// Start an HTTP request and return at once with its [`HttpAbort`]; `done` gets the outcome later
+/// (see [`HttpDone`]).
+pub type HttpFn = Box<dyn Fn(HttpRequest, HttpDone) -> HttpAbort>;
+
+/// Asks an [`HttpFn`] request to stop. In the browser the `fetch` is aborted at once (the request,
+/// or the body still arriving), and `done` then gets `Err` unless it already had the answer. The
+/// native worker only checks for an abort before each body chunk: while it connects, sends, or
+/// waits for the status line and headers, nothing happens until the headers arrive or the
+/// request's deadline passes (up to 300 s for a model call), and mid-body it stops when the read
+/// in progress returns. It then hangs up and `done` gets `Err` (or the answer, if that read was
+/// the last). Either way `done` may still run after `abort`, so callers ignore what arrives for a
+/// request they aborted. Aborting a finished request does nothing; dropping the handle doesn't
+/// abort.
+pub struct HttpAbort(Option<Box<dyn FnOnce()>>);
+
+impl HttpAbort {
+    pub fn new(abort: impl FnOnce() + 'static) -> HttpAbort {
+        HttpAbort(Some(Box::new(abort)))
+    }
+    /// For a request that can't be stopped (or never started).
+    pub fn none() -> HttpAbort {
+        HttpAbort(None)
+    }
+    pub fn abort(mut self) {
+        if let Some(abort) = self.0.take() {
+            abort();
+        }
+    }
+}
+
+impl std::fmt::Debug for HttpAbort {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() { "HttpAbort" } else { "HttpAbort(none)" })
+    }
+}
+
+/// A converted web font cached across sessions by key (an ASCII hex string, safe as a file name);
+/// `None` when there is none. The entry is checked by the caller (`frameforge_ui`).
+pub type FontCacheLoadFn = Box<dyn Fn(&str) -> Option<Vec<u8>>>;
+/// Store a font cache entry under a key (see [`FontCacheLoadFn`]); best effort, bounded in size.
+pub type FontCacheStoreFn = Box<dyn Fn(&str, &[u8])>;
 
 /// Platform services injected by the app binary (file dialogs, codecs), keeping this crate free of
 /// I/O dependencies.
@@ -414,6 +458,10 @@ pub struct Services {
     /// HTTP for Window › FrameForge (`frameforge_ui`); without it the panel says it needs a
     /// network-enabled build.
     pub http: Option<HttpFn>,
+    /// Window › FrameForge's converted server fonts, kept across sessions (desktop: under the
+    /// config directory, bounded). Without them (web, tests) the fonts are cached for the session.
+    pub font_cache_load: Option<FontCacheLoadFn>,
+    pub font_cache_store: Option<FontCacheStoreFn>,
 }
 
 /// A document histogram being computed off the UI thread: (document, revision, receiver of

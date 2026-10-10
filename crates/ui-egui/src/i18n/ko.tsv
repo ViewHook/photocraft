@@ -3054,3 +3054,7 @@ fontWeight	Italic	기울임
 	Enter the access token for {origin}.	{origin}의 액세스 토큰을 입력하세요.
 	{name} isn't a PNG, JPEG or WebP image.	{name}은(는) PNG, JPEG 또는 WebP 이미지가 아닙니다.
 	Use https:// for servers other than localhost.	localhost가 아닌 서버에는 https://를 사용하세요.
+	Decoding…	디코딩 중…
+	The FrameForge server didn't answer in time.	FrameForge 서버가 제시간에 응답하지 않았습니다.
+	Waiting for the images to decode…	이미지 디코딩을 기다리는 중…
+	the image decoder failed	이미지 디코더가 실패했습니다

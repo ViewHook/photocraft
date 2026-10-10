@@ -16,7 +16,10 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
-#[cfg(any(target_arch = "wasm32", test))]
+#[cfg(target_arch = "wasm32")]
+mod fetch;
+// The desktop's FrameForge adapter, for its loopback tests (see the file).
+#[cfg(all(not(target_arch = "wasm32"), test))]
 mod http;
 #[cfg(any(target_arch = "wasm32", test))]
 mod preset_bridge;

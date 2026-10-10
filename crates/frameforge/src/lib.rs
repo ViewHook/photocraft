@@ -3,6 +3,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 mod archive;
 pub mod convert;
+pub mod font_store;
 pub mod fonts;
 pub use archive::read_archive;
 use convert::{number, string};
@@ -314,6 +315,8 @@ pub fn font_from_dir(dir: &std::path::Path, family: &str, weight: u16) -> Option
     }
     std::fs::read(dir.join(format!("{slug}-{weight}.ttf"))).ok()
 }
+/// Test fixtures: this crate's tests, and other crates' tests through the `testing` feature.
+#[cfg(any(test, feature = "testing"))]
 #[doc(hidden)]
 pub mod testing;
 #[cfg(test)]

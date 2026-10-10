@@ -2882,3 +2882,7 @@ fontWeight	Italic	Miring
 	Enter the access token for {origin}.	Masukkan token akses untuk {origin}.
 	{name} isn't a PNG, JPEG or WebP image.	{name} bukan gambar PNG, JPEG, atau WebP.
 	Use https:// for servers other than localhost.	Gunakan https:// untuk server selain localhost.
+	Decoding…	Mendekode…
+	The FrameForge server didn't answer in time.	Server FrameForge tidak menjawab tepat waktu.
+	Waiting for the images to decode…	Menunggu gambar selesai didekode…
+	the image decoder failed	dekoder gambar gagal
