@@ -1,0 +1,205 @@
+name: Prism Review
+run-name: ${{ github.event.pull_request.number || inputs.pull_request_number }}
+
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: Pull request number to review
+        required: true
+        type: number
+
+permissions: {}
+
+concurrency:
+  # Title and body edits (for example a review bot adding its summary) do not change the diff. They
+  # get their own concurrency group so they can neither cancel a running review nor evict a pending
+  # one, and the job condition below skips them. Base-branch retargets do change the diff and stay
+  # in the real group.
+  group: prism-review-${{ github.repository }}-${{ github.event.pull_request.number || inputs.pull_request_number }}${{ (github.event.action == 'edited' && github.event.changes.base == null) && '-ignored-edit' || '' }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    if: >-
+      github.actor != 'dependabot[bot]' &&
+      (github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false) &&
+      (github.event.action != 'edited' || github.event.changes.base != null)
+    runs-on: [self-hosted, prism-review]
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      should-run: ${{ steps.plan.outputs.should-run }}
+      manifest-digest: ${{ steps.plan.outputs.manifest-digest }}
+      worker-matrix: ${{ steps.plan.outputs.worker-matrix }}
+
+    steps:
+      # Every phase runs trusted installed code and reads immutable GitHub source snapshots. It never
+      # checks out, installs, imports, builds, tests, or executes pull-request code.
+      - name: Plan immutable review shards
+        id: plan
+        env:
+          PRISM_DISTRIBUTED_PHASE: plan
+          PRISM_DISTRIBUTED_MANIFEST_PATH: ${{ runner.temp }}/prism-manifest.json
+          PRISM_DISTRIBUTED_MAX_WORKERS: "3"
+          PRISM_GITHUB_TOKEN: ${{ github.token }}
+          PRISM_OPENAI_BASE_URL: http://127.0.0.1:8317/v1
+          PRISM_MODEL: gpt-6.1-sol
+          PRISM_REASONING_EFFORT: high
+          PRISM_PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number || inputs.pull_request_number }}
+        run: node "$HOME/prism-review/scripts/run-local-action.mjs"
+
+      - name: Store immutable review plan
+        if: steps.plan.outputs.should-run == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: prism-plan-${{ github.run_id }}
+          path: ${{ runner.temp }}/prism-manifest.json
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
+  discover:
+    needs: plan
+    if: needs.plan.outputs.should-run == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.plan.outputs.worker-matrix) }}
+    runs-on: [self-hosted, prism-review]
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      - name: Download immutable review plan
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: prism-plan-${{ github.run_id }}
+          path: ${{ runner.temp }}/prism-plan
+
+      - name: Run discovery shard
+        env:
+          PRISM_DISTRIBUTED_PHASE: discover
+          PRISM_DISTRIBUTED_MANIFEST_PATH: ${{ runner.temp }}/prism-plan/prism-manifest.json
+          PRISM_DISTRIBUTED_MANIFEST_DIGEST: ${{ needs.plan.outputs.manifest-digest }}
+          PRISM_DISTRIBUTED_SHARD_INDEX: ${{ matrix.shard }}
+          PRISM_DISTRIBUTED_RESULT_PATH: ${{ runner.temp }}/result-${{ matrix.shard }}.json
+          PRISM_GITHUB_TOKEN: ${{ github.token }}
+          PRISM_OPENAI_API_KEY: ${{ secrets.PRISM_REVIEW_API_KEY }}
+          PRISM_OPENAI_BASE_URL: http://127.0.0.1:8317/v1
+          PRISM_MODEL: gpt-6.1-sol
+          PRISM_REASONING_EFFORT: high
+          PRISM_PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number || inputs.pull_request_number }}
+        run: node "$HOME/prism-review/scripts/run-local-action.mjs"
+
+      - name: Store discovery result
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: prism-discovery-${{ github.run_id }}-${{ matrix.shard }}
+          path: ${{ runner.temp }}/result-${{ matrix.shard }}.json
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
+  aggregate:
+    needs: [plan, discover]
+    if: >-
+      needs.plan.result == 'success' &&
+      needs.plan.outputs.should-run == 'true' &&
+      needs.discover.result == 'success'
+    runs-on: [self-hosted, prism-review]
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Download immutable review plan
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: prism-plan-${{ github.run_id }}
+          path: ${{ runner.temp }}/prism-plan
+
+      - name: Download all discovery results
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: prism-discovery-${{ github.run_id }}-*
+          path: ${{ runner.temp }}/prism-results
+          merge-multiple: true
+
+      - name: Validate, deduplicate, and publish
+        env:
+          PRISM_DISTRIBUTED_PHASE: aggregate
+          PRISM_DISTRIBUTED_MANIFEST_PATH: ${{ runner.temp }}/prism-plan/prism-manifest.json
+          PRISM_DISTRIBUTED_MANIFEST_DIGEST: ${{ needs.plan.outputs.manifest-digest }}
+          PRISM_DISTRIBUTED_RESULTS_PATH: ${{ runner.temp }}/prism-results
+          PRISM_GITHUB_TOKEN: ${{ github.token }}
+          PRISM_OPENAI_API_KEY: ${{ secrets.PRISM_REVIEW_API_KEY }}
+          PRISM_OPENAI_BASE_URL: http://127.0.0.1:8317/v1
+          PRISM_MODEL: gpt-6.1-sol
+          PRISM_REASONING_EFFORT: high
+          PRISM_PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number || inputs.pull_request_number }}
+        run: node "$HOME/prism-review/scripts/run-local-action.mjs"
+
+  report:
+    # Runs even when a shard or the aggregator failed. A skipped aggregate reads as a passing status
+    # on the pull request, so this job is the one to mark as required: it fails whenever the review
+    # did not publish and says so on the pull request instead of leaving silence.
+    needs: [plan, discover, aggregate]
+    if: >-
+      always() &&
+      needs.plan.result != 'skipped' &&
+      (needs.plan.result != 'success' || needs.plan.outputs.should-run == 'true')
+    runs-on: [self-hosted, prism-review]
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Fail and report when the review did not publish
+        if: >-
+          needs.plan.result != 'success' ||
+          needs.discover.result != 'success' ||
+          needs.aggregate.result != 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pull_request_number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PLAN: ${{ needs.plan.result }}
+          DISCOVER: ${{ needs.discover.result }}
+          AGGREGATE: ${{ needs.aggregate.result }}
+        run: |
+          marker='<!-- prism-review:incomplete -->'
+          body="$marker
+          ## Prism Review did not complete
+
+          No review was published for this head. Job results: plan \`$PLAN\`, discover \`$DISCOVER\`, aggregate \`$AGGREGATE\`.
+
+          See the [workflow run]($RUN_URL) for the failing step. Push a new commit or re-run **all** jobs to review again."
+          existing=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --paginate \
+            --jq "map(select(.body | startswith(\"$marker\"))) | .[0].id // empty")
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" -f body="$body" >/dev/null
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" -f body="$body" >/dev/null
+          fi
+          echo "::error::Prism review did not publish (plan=$PLAN discover=$DISCOVER aggregate=$AGGREGATE)."
+          exit 1
+
+      - name: Clear an earlier incomplete-review notice
+        if: needs.aggregate.result == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pull_request_number }}
+        run: |
+          marker='<!-- prism-review:incomplete -->'
+          for id in $(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --paginate \
+            --jq "map(select(.body | startswith(\"$marker\"))) | .[].id"); do
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/comments/$id" >/dev/null
+          done
